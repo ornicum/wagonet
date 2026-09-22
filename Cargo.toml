@@ -1,0 +1,25 @@
+[package]
+name = "wagonet"
+version = "0.6.0"
+edition = "2024"
+description = "High-performance async TCP/TLS transport library with custom protocol"
+repository = "https://github.com/ornicum/wagonet"
+documentation = "https://docs.rs/wagonet"
+homepage = "https://github.com/ornicum/wagonet"
+license = "MIT OR Apache-2.0"
+keywords = ["tcp", "tls", "async", "transport", "protocol"]
+categories = ["network-programming", "asynchronous"]
+readme = "README.md"
+include = ["src/**/*", "examples/**/*", "LICENSE-MIT", "LICENSE-APACHE", "README.md", "docs/**/*"]
+
+[workspace]
+
+[dependencies]
+tokio = { version = "1.53.1", features = ["full"] }
+native-tls = "0.2.18"
+tokio-native-tls = "0.3.1"
+tracing = "0.1.44"
+strum_macros = "0.28.0"
+rcgen = "0.14.9"
+socket2 = "0.5"
+thiserror = "2.0"
