@@ -15,7 +15,7 @@ include = ["src/**/*", "examples/**/*", "LICENSE-MIT", "LICENSE-APACHE", "README
 [workspace]
 
 [dependencies]
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }
 native-tls = "0.2.18"
 tokio-native-tls = "0.3.1"
 tracing = "0.1.44"
