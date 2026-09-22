@@ -170,7 +170,7 @@ mod integration_tests {
         let server_handle = tokio::spawn(async move {
             server_ready_clone.notify_one();
             let (mut stream, _) = listener.accept().await.unwrap();
-            let (reader, writer) = tokio::io::split(&mut stream);
+            let (reader, writer) = stream.split();
             let mut server = ServerTL::new(reader, writer);
             eprintln!("[server] waiting for command");
             let (command, data_size) = server.read_command().await.unwrap();
@@ -212,7 +212,7 @@ mod integration_tests {
 
         let server_handle = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let (reader, writer) = tokio::io::split(&mut stream);
+            let (reader, writer) = stream.split();
             let mut server = ServerTL::new(reader, writer);
             server.set_max_buffer_size(5);
 
@@ -236,7 +236,7 @@ mod integration_tests {
         let addr = listener.local_addr().unwrap().to_string();
         let server_handle = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let (reader, writer) = tokio::io::split(&mut stream);
+            let (reader, writer) = stream.split();
             let mut server = ServerTL::new(reader, writer);
             let (_, data_size) = server.read_command().await.unwrap();
             let received_data = server.receive_data(data_size).await.unwrap();

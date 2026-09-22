@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (mut stream, addr) = listener.accept().await?;
         println!("Client connected: {}", addr);
 
-        let (rd, wr) = tokio::io::split(&mut stream);
+        let (rd, wr) = stream.split();
         let mut server = ServerTL::new(rd, wr);
 
         loop {

@@ -1,4 +1,5 @@
-use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tracing::error;
 
 use crate::Result;
@@ -18,8 +19,8 @@ use crate::timeout_config::TimeoutConfig;
 /// Does not manage the connection lifecycle - the caller handles `accept()` and spawning.
 #[derive(Debug)]
 pub struct ServerTL<'a> {
-    reader: ReadHalf<&'a mut tokio::net::TcpStream>,
-    writer: WriteHalf<&'a mut tokio::net::TcpStream>,
+    reader: ReadHalf<'a>,
+    writer: WriteHalf<'a>,
     buffer: Vec<u8>,
     max_buffer_size: usize,
     timeout_config: TimeoutConfig,
@@ -29,8 +30,8 @@ impl<'a> ServerTL<'a> {
     /// Create a new server handler from split stream halves.
     /// The caller is responsible for accepting the connection and splitting the stream.
     pub fn new(
-        reader: ReadHalf<&'a mut tokio::net::TcpStream>,
-        writer: WriteHalf<&'a mut tokio::net::TcpStream>,
+        reader: ReadHalf<'a>,
+        writer: WriteHalf<'a>,
     ) -> Self {
         Self {
             reader,
