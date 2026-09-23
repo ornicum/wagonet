@@ -157,6 +157,7 @@ impl ClientTL {
 
     async fn send_request_header(&mut self, command: u32, data_size: u32) -> Result<()> {
         let request_header = RequestHeader::new(command, data_size);
+        self.buffer.clear();
         request_header.encode(&mut self.buffer)?;
         let stream = self.stream.as_mut().ok_or(Error::NotConnected)?;
 
@@ -181,6 +182,7 @@ impl ClientTL {
     async fn send_response_header(&mut self, status: u8, data_size: u32) -> Result<()> {
         let is_default = data_size == 0;
         let response_header = ResponseHeader::new(status, data_size);
+        self.buffer.clear();
         response_header.encode(&mut self.buffer, is_default)?;
         let stream = self.stream.as_mut().ok_or(Error::NotConnected)?;
 

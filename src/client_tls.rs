@@ -185,6 +185,7 @@ impl ClientTLS {
         data_size: u32,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let request_header = RequestHeader::new(command, data_size);
+        self.buffer.clear();
         request_header.encode(&mut self.buffer)?;
         let stream = self.tls_stream.as_mut().ok_or("Not connected")?;
 
@@ -213,6 +214,7 @@ impl ClientTLS {
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let is_default = data_size == 0;
         let response_header = ResponseHeader::new(status, data_size);
+        self.buffer.clear();
         response_header.encode(&mut self.buffer, is_default)?;
         let stream = self.tls_stream.as_mut().ok_or("Not connected")?;
 
