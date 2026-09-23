@@ -96,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (stream, addr) = listener.accept().await?;
         println!("Client connected: {}", addr);
         
-        let (reader, writer) = stream.into_split();
+        let (reader, writer) = stream.split();
         let mut server = ServerTL::new(reader, writer);
         
         tokio::spawn(async move {
