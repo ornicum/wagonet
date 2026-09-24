@@ -90,6 +90,7 @@ impl<'a> ServerTLS<'a> {
 
     async fn send_response_header(&mut self, status: u8, data_size: u32) -> Result<()> {
         let is_default = data_size == 0;
+        self.buffer.clear();
         let res_header = ResponseHeader::new(status, data_size);
         res_header.encode(&mut self.buffer, is_default)?;
 
