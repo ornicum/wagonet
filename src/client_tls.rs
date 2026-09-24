@@ -141,7 +141,12 @@ impl ClientTLS {
                             let tcp_keepalive = socket2::TcpKeepalive::new()
                                 .with_time(ka.time)
                                 .with_interval(ka.interval);
-                            let _ = sock_ref.set_tcp_keepalive(&tcp_keepalive);
+                            if let Err(e) = sock_ref.set_tcp_keepalive(&tcp_keepalive) {
+                                tracing::warn!(
+                                    "Failed to set TCP keepalive: {}. Probes may not work as expected.",
+                                    e
+                                );
+                            }
                         } else {
                             let _ = sock_ref.set_keepalive(true);
                         }
@@ -354,29 +359,21 @@ impl ClientTLS {
         command: u32,
         request_data: &[u8],
     ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
-        // If keep_alive is enabled and already connected, reuse connection
-        if self.keep_alive && self.tls_stream.is_some() {
-            // Connection already exists, reuse it
-        } else {
+        if !self.keep_alive || self.tls_stream.is_some() {
             self.connect().await?;
         }
 
         // Try to send/receive, if fails due to connection issue, reconnect and retry once
         let result = self.try_send_receive(command, request_data).await;
-        match result {
-            Ok(response) => Ok(response),
-            Err(e) => {
-                if self.keep_alive {
-                    // Try to reconnect and retry once
-                    error!("Message exchange failed, reconnecting: {}", e);
-                    self.tls_stream = None;
-                    self.connect().await?;
-                    self.try_send_receive(command, request_data).await
-                } else {
-                    Err(e)
-                }
-            }
+        if result.is_err() {
+            error!(
+                "Message exchange failed, dropping connection: {}",
+                result.as_ref().unwrap_err()
+            );
+            self.tls_stream = None;
         }
+
+        result
     }
 
     async fn try_send_receive(

@@ -29,10 +29,7 @@ pub struct ServerTL<'a> {
 impl<'a> ServerTL<'a> {
     /// Create a new server handler from split stream halves.
     /// The caller is responsible for accepting the connection and splitting the stream.
-    pub fn new(
-        reader: ReadHalf<'a>,
-        writer: WriteHalf<'a>,
-    ) -> Self {
+    pub fn new(reader: ReadHalf<'a>, writer: WriteHalf<'a>) -> Self {
         Self {
             reader,
             writer,

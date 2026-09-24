@@ -117,7 +117,12 @@ impl ClientTL {
                             let tcp_keepalive = socket2::TcpKeepalive::new()
                                 .with_time(ka.time)
                                 .with_interval(ka.interval);
-                            let _ = sock_ref.set_tcp_keepalive(&tcp_keepalive);
+                            if let Err(e) = sock_ref.set_tcp_keepalive(&tcp_keepalive) {
+                                tracing::warn!(
+                                    "Failed to set TCP keepalive: {}. Probes may not work as expected.",
+                                    e
+                                );
+                            }
                         } else {
                             let _ = sock_ref.set_keepalive(true);
                         }
@@ -313,27 +318,20 @@ impl ClientTL {
     /// - On transient failure with `keep_alive=true`: clears stream, reconnects, retries once.
     /// - Returns response payload bytes.
     pub async fn handle_message(&mut self, command: u32, request_data: &[u8]) -> Result<Vec<u8>> {
-        // If keep_alive is enabled and already connected, reuse connection
-        if self.keep_alive && self.stream.is_some() {
-            // Connection already exists, reuse it
-        } else {
+        if !self.keep_alive || self.stream.is_none() {
             self.connect().await?;
         }
 
         let result = self.try_send_receive(command, request_data).await;
-        match result {
-            Ok(response) => Ok(response),
-            Err(e) => {
-                if self.keep_alive {
-                    error!("Message exchange failed, reconnecting: {}", e);
-                    self.stream = None;
-                    self.connect().await?;
-                    self.try_send_receive(command, request_data).await
-                } else {
-                    Err(e)
-                }
-            }
+        if result.is_err() {
+            error!(
+                "Message exchange failed, dropping connection: {}",
+                result.as_ref().unwrap_err()
+            );
+            self.stream = None;
         }
+
+        result
     }
 
     async fn try_send_receive(&mut self, command: u32, request_data: &[u8]) -> Result<Vec<u8>> {
