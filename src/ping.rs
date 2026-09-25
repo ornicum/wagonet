@@ -68,7 +68,6 @@ impl PingState {
         })
     }
 
-
     /// Update the last activity timestamp to now.
     pub async fn touch_activity(&self) {
         let mut guard = self.last_activity.lock().await;
@@ -235,7 +234,10 @@ where
 
 /// Receive and validate a ping response.
 /// Supports both new server (1-byte response: status=1) and old server (5-byte response header with status=1, data_size=0).
-pub async fn receive_ping_response_impl<R>(reader: &mut R, read_header_timeout: Duration) -> Result<()>
+pub async fn receive_ping_response_impl<R>(
+    reader: &mut R,
+    read_header_timeout: Duration,
+) -> Result<()>
 where
     R: tokio::io::AsyncRead + Unpin + Send,
 {

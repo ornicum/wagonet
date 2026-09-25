@@ -1,6 +1,5 @@
 use native_tls::TlsConnector as NativeTlsConnector;
 use socket2::SockRef;
-use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -9,6 +8,7 @@ use tokio::sync::Mutex;
 use tokio_native_tls::{TlsConnector, TlsStream};
 use tracing::{error, warn};
 
+use crate::Result;
 use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::ping::PingState;
 use crate::request_header::RequestHeader;
@@ -160,7 +160,9 @@ impl ClientTLS {
             if config.read_header > Duration::ZERO {
                 // Clamp to read_header - 1s, but ensure at least 100ms remains if possible
                 let clamped = config.read_header.saturating_sub(Duration::from_secs(1));
-                config.ping_interval = if clamped == Duration::ZERO && config.read_header >= Duration::from_millis(200) {
+                config.ping_interval = if clamped == Duration::ZERO
+                    && config.read_header >= Duration::from_millis(200)
+                {
                     // If subtracting 1s gives 0 but read_header >= 200ms, use read_header / 2
                     config.read_header / 2
                 } else {
@@ -174,9 +176,7 @@ impl ClientTLS {
                 );
             } else {
                 config.ping_interval = Duration::ZERO;
-                tracing::warn!(
-                    "read_header is zero, disabling ping (ping_interval = 0)"
-                );
+                tracing::warn!("read_header is zero, disabling ping (ping_interval = 0)");
             }
         }
         config.validate();
@@ -192,7 +192,7 @@ impl ClientTLS {
     /// Explicitly establish a TLS connection with retry logic.
     /// Retries up to 10 times with 1s delay between attempts.
     /// Called automatically by `handle_message` if not already connected.
-    pub async fn connect(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn connect(&mut self) -> Result<()> {
         let mut connector = NativeTlsConnector::builder();
         connector.danger_accept_invalid_certs(self.accept_invalid_certs);
         let connector = connector.build()?;
@@ -224,10 +224,11 @@ impl ClientTLS {
                     }
                     let tls_stream = connector.connect(self.domain.as_str(), stream).await?;
                     *self.tls_stream.lock().await = Some(tls_stream);
-                    
+
                     // Start ping task if keep_alive is enabled
                     if self.keep_alive && self.ping_state.is_enabled().await {
-                        self.ping_state.clone()
+                        self.ping_state
+                            .clone()
                             .start_ping_task(self.tls_stream.clone())
                             .await;
                     }
@@ -249,14 +250,13 @@ impl ClientTLS {
         }
         Ok(())
     }
-
     /// Gracefully close the TLS connection.
     /// Sends shutdown and clears the internal stream.
     ///
     /// **Note:** This method stops the background ping task by calling
     /// `stop_ping_task()`, which may block for up to 5 seconds (the default
     /// ping task shutdown timeout) if the ping task is stuck in network I/O.
-    pub async fn disconnect(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    pub async fn disconnect(&mut self) -> Result<()> {
         // Stop ping task first
         self.ping_state.stop_ping_task().await;
 
@@ -278,7 +278,7 @@ impl ClientTLS {
         data_size: u32,
         timeout: Duration,
         buffer: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let request_header = RequestHeader::new(command, data_size);
         buffer.clear();
         request_header.encode(buffer)?;
@@ -306,7 +306,7 @@ impl ClientTLS {
         data_size: u32,
         timeout: Duration,
         buffer: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let is_default = data_size == 0;
         let response_header = ResponseHeader::new(status, data_size);
         buffer.clear();
@@ -335,7 +335,7 @@ impl ClientTLS {
         command_has_answer: bool,
         timeout: Duration,
         buffer: &mut Vec<u8>,
-    ) -> Result<ResponseHeader, Box<dyn Error + Send + Sync>> {
+    ) -> Result<ResponseHeader, Box<dyn std::error::Error + Send + Sync>> {
         let result_buf_size = ResponseHeader::encoded_len(is_default, command_has_answer);
         buffer.resize(result_buf_size, 0);
 
@@ -364,10 +364,24 @@ impl ClientTLS {
         timeout_config: &TimeoutConfig,
         command_has_answer: bool,
         buffer: &mut Vec<u8>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        Self::send_request_header_locked(stream, command, data.len() as u32, timeout_config.write, buffer).await?;
-        Self::receive_response_header_locked(stream, true, command_has_answer, timeout_config.read_header, buffer).await?;
-        
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Self::send_request_header_locked(
+            stream,
+            command,
+            data.len() as u32,
+            timeout_config.write,
+            buffer,
+        )
+        .await?;
+        Self::receive_response_header_locked(
+            stream,
+            true,
+            command_has_answer,
+            timeout_config.read_header,
+            buffer,
+        )
+        .await?;
+
         match tokio::time::timeout(timeout_config.write, stream.write_all(data)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
@@ -391,9 +405,16 @@ impl ClientTLS {
         command_has_answer: bool,
         max_buffer_size: usize,
         buffer: &mut Vec<u8>,
-    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
         let data_size = {
-            let res_header = Self::receive_response_header_locked(stream, false, command_has_answer, timeout_config.read_header, buffer).await?;
+            let res_header = Self::receive_response_header_locked(
+                stream,
+                false,
+                command_has_answer,
+                timeout_config.read_header,
+                buffer,
+            )
+            .await?;
             let status = res_header.status;
             if status != 1 {
                 return Err(format!("Response status is not Ok: {status}").into());
@@ -437,11 +458,7 @@ impl ClientTLS {
     /// - Sends request header + data, reads response header + data.
     /// - On transient failure with `keep_alive=true`: clears stream, reconnects, retries once.
     /// - Returns response payload bytes.
-    pub async fn handle_message(
-        &mut self,
-        command: u32,
-        request_data: &[u8],
-    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+    pub async fn handle_message(&mut self, command: u32, request_data: &[u8]) -> Result<Vec<u8>> {
         if !self.keep_alive || self.tls_stream.lock().await.is_none() {
             self.connect().await?;
         }
@@ -449,7 +466,10 @@ impl ClientTLS {
         // Acquire in-flight lock for the entire request-response cycle
         let _in_flight_guard = self.ping_state.acquire_in_flight().await;
         let mut stream_guard = self.tls_stream.lock().await;
-        let stream = stream_guard.as_mut().unwrap();
+        let stream = match stream_guard.as_mut() {
+            Some(s) => s,
+            None => return Err("Not connected".into()),
+        };
 
         let result = async {
             Self::send_message_locked(
@@ -485,7 +505,6 @@ impl ClientTLS {
 
         result
     }
-
     /// Fire-and-forget: send request without waiting for response.
     ///
     /// Temporarily sets `command_has_answer=false`, calls `handle_message`,
@@ -495,7 +514,7 @@ impl ClientTLS {
         &mut self,
         command: u32,
         request_data: &[u8],
-    ) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>> {
+    ) -> Result<Vec<u8>> {
         self.command_has_answer = false;
         let res = self.handle_message(command, request_data).await;
         self.command_has_answer = true;

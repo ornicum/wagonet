@@ -9,8 +9,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::task::JoinHandle;
 use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 use wagonet::{ClientTL, TimeoutConfig};
 /// Spawns a mock server implementing the wagonet binary protocol with graceful shutdown.
 ///
@@ -114,7 +114,8 @@ async fn spawn_mock_server(
                 }
             }
         }
-    }).await
+    })
+    .await
 }
 
 /// Test 1: Happy path — verify that keep-alive actually reuses the same TCP connection
@@ -122,7 +123,8 @@ async fn spawn_mock_server(
 #[tokio::test]
 async fn test_keep_alive_reuses_connection() {
     let connection_count = Arc::new(AtomicUsize::new(0));
-    let (_server_handle, server_shutdown, addr) = spawn_mock_server(Some(connection_count.clone()), false).await;
+    let (_server_handle, server_shutdown, addr) =
+        spawn_mock_server(Some(connection_count.clone()), false).await;
 
     let mut client = ClientTL::new(addr.to_string());
     client.set_keep_alive(true).await;
@@ -151,14 +153,17 @@ async fn test_keep_alive_reuses_connection() {
 #[tokio::test]
 async fn test_keep_alive_no_duplicate_on_failure() {
     let connection_count = Arc::new(AtomicUsize::new(0));
-    let (_server_handle, server_shutdown, addr) = spawn_mock_server(Some(connection_count.clone()), true).await;
+    let (_server_handle, server_shutdown, addr) =
+        spawn_mock_server(Some(connection_count.clone()), true).await;
 
     let mut client = ClientTL::new(addr.to_string());
     client.set_keep_alive(true).await;
-    client.set_timeout_config(TimeoutConfig {
-        read_header: Duration::from_millis(500),
-        ..Default::default()
-    }).await;
+    client
+        .set_timeout_config(TimeoutConfig {
+            read_header: Duration::from_millis(500),
+            ..Default::default()
+        })
+        .await;
 
     // First call fails because the server drops the connection.
     let res1 = client.handle_message(1, b"test").await;
@@ -187,14 +192,17 @@ async fn test_keep_alive_no_duplicate_on_failure() {
 #[tokio::test]
 async fn test_keep_alive_recovers_on_next_call() {
     let connection_count = Arc::new(AtomicUsize::new(0));
-    let (_server_handle, server_shutdown, addr) = spawn_mock_server(Some(connection_count.clone()), true).await;
+    let (_server_handle, server_shutdown, addr) =
+        spawn_mock_server(Some(connection_count.clone()), true).await;
 
     let mut client = ClientTL::new(addr.to_string());
     client.set_keep_alive(true).await;
-    client.set_timeout_config(TimeoutConfig {
-        read_header: Duration::from_millis(500),
-        ..Default::default()
-    }).await;
+    client
+        .set_timeout_config(TimeoutConfig {
+            read_header: Duration::from_millis(500),
+            ..Default::default()
+        })
+        .await;
 
     // First call fails because the server drops the connection.
     let res1 = client.handle_message(1, b"test").await;

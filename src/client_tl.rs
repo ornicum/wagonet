@@ -131,7 +131,9 @@ impl ClientTL {
             if config.read_header > Duration::ZERO {
                 // Clamp to read_header - 1s, but ensure at least 100ms remains if possible
                 let clamped = config.read_header.saturating_sub(Duration::from_secs(1));
-                config.ping_interval = if clamped == Duration::ZERO && config.read_header >= Duration::from_millis(200) {
+                config.ping_interval = if clamped == Duration::ZERO
+                    && config.read_header >= Duration::from_millis(200)
+                {
                     // If subtracting 1s gives 0 but read_header >= 200ms, use read_header / 2
                     config.read_header / 2
                 } else {
@@ -145,9 +147,7 @@ impl ClientTL {
                 );
             } else {
                 config.ping_interval = Duration::ZERO;
-                tracing::warn!(
-                    "read_header is zero, disabling ping (ping_interval = 0)"
-                );
+                tracing::warn!("read_header is zero, disabling ping (ping_interval = 0)");
             }
         }
         config.validate();
@@ -191,10 +191,11 @@ impl ClientTL {
                     }
                     error!("CLIENT: New TCP connection established");
                     *self.stream.lock().await = Some(stream);
-                    
+
                     // Start ping task if keep_alive is enabled
                     if self.keep_alive && self.ping_state.is_enabled().await {
-                        self.ping_state.clone()
+                        self.ping_state
+                            .clone()
                             .start_ping_task(self.stream.clone())
                             .await;
                     }
@@ -332,9 +333,23 @@ impl ClientTL {
         command_has_answer: bool,
         buffer: &mut Vec<u8>,
     ) -> Result<()> {
-        Self::send_request_header_locked(stream, command, data.len() as u32, timeout_config.write, buffer).await?;
-        Self::receive_response_header_locked(stream, true, command_has_answer, timeout_config.read_header, buffer).await?;
-        
+        Self::send_request_header_locked(
+            stream,
+            command,
+            data.len() as u32,
+            timeout_config.write,
+            buffer,
+        )
+        .await?;
+        Self::receive_response_header_locked(
+            stream,
+            true,
+            command_has_answer,
+            timeout_config.read_header,
+            buffer,
+        )
+        .await?;
+
         match tokio::time::timeout(timeout_config.write, stream.write_all(data)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
@@ -360,7 +375,14 @@ impl ClientTL {
         buffer: &mut Vec<u8>,
     ) -> Result<Vec<u8>> {
         let data_size = {
-            let res_header = Self::receive_response_header_locked(stream, false, command_has_answer, timeout_config.read_header, buffer).await?;
+            let res_header = Self::receive_response_header_locked(
+                stream,
+                false,
+                command_has_answer,
+                timeout_config.read_header,
+                buffer,
+            )
+            .await?;
             let status = res_header.status;
             if status != 1 {
                 return Err(Error::ResponseError { status });
@@ -415,7 +437,10 @@ impl ClientTL {
         // Acquire in-flight lock for the entire request-response cycle
         let _in_flight_guard = self.ping_state.acquire_in_flight().await;
         let mut stream_guard = self.stream.lock().await;
-        let stream = stream_guard.as_mut().unwrap();
+        let stream = match stream_guard.as_mut() {
+            Some(s) => s,
+            None => return Err(Error::NotConnected),
+        };
 
         let result = async {
             Self::send_message_locked(
@@ -489,13 +514,13 @@ mod tests {
     use super::*;
     use crate::protocol_structs::Command;
     use crate::request_header::RequestHeader;
+    use crate::server_tl::ServerTL;
+    use crate::timeout_config::TimeoutConfig;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
-    use crate::timeout_config::TimeoutConfig;
-    use crate::server_tl::ServerTL;
 
     #[test]
     fn ping_header_codec() {
@@ -563,17 +588,19 @@ mod tests {
 
         let mut client = ClientTL::new(addr.to_string());
         client.set_keep_alive(true).await;
-        client.set_timeout_config(TimeoutConfig {
-            ping_interval: Duration::from_millis(100),
-            ..Default::default()
-        }).await;
+        client
+            .set_timeout_config(TimeoutConfig {
+                ping_interval: Duration::from_millis(100),
+                ..Default::default()
+            })
+            .await;
 
         // Connect and manually send ping
         client.connect().await.unwrap();
-        
+
         let mut stream_guard = client.stream.lock().await;
         let stream = stream_guard.as_mut().unwrap();
-        
+
         let request_header = RequestHeader::new(0, 0);
         let mut buf = Vec::new();
         request_header.encode(&mut buf).unwrap();
@@ -602,19 +629,21 @@ mod tests {
 
         let mut client = ClientTL::new(addr.to_string());
         client.set_keep_alive(true).await;
-        client.set_timeout_config(TimeoutConfig {
-            ping_interval: Duration::from_millis(100),
-            ..Default::default()
-        }).await;
+        client
+            .set_timeout_config(TimeoutConfig {
+                ping_interval: Duration::from_millis(100),
+                ..Default::default()
+            })
+            .await;
 
         // Connect and wait for pings
         client.connect().await.unwrap();
-        
+
         // Wait for ~350ms, should get at least 3 pings
         tokio::time::sleep(Duration::from_millis(350)).await;
-        
+
         client.disconnect().await.unwrap();
-        
+
         let count = ping_count.load(Ordering::SeqCst);
         assert!(count >= 3, "Expected at least 3 pings, got {}", count);
     }
@@ -630,22 +659,28 @@ mod tests {
 
         let mut client = ClientTL::new(addr.to_string());
         client.set_keep_alive(true).await;
-        client.set_timeout_config(TimeoutConfig {
-            ping_interval: Duration::from_millis(200),
-            ..Default::default()
-        }).await;
+        client
+            .set_timeout_config(TimeoutConfig {
+                ping_interval: Duration::from_millis(200),
+                ..Default::default()
+            })
+            .await;
 
         // Send requests every 50ms for 500ms - should be 10 requests
         for i in 0..10 {
             client.handle_message(i, b"data").await.unwrap();
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-        
+
         client.disconnect().await.unwrap();
-        
+
         // During active requests, no pings should be sent
         let count = ping_count.load(Ordering::SeqCst);
-        assert_eq!(count, 0, "Expected no pings during active requests, got {}", count);
+        assert_eq!(
+            count, 0,
+            "Expected no pings during active requests, got {}",
+            count
+        );
     }
 
     #[test]
@@ -655,10 +690,10 @@ mod tests {
             ping_interval: Duration::from_secs(30),
             ..Default::default()
         };
-        
+
         // This should log a warning but not panic
         config.validate();
-        
+
         // Test valid config
         let config = TimeoutConfig {
             read_header: Duration::from_secs(60),

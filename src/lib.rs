@@ -50,8 +50,8 @@ use thiserror::Error;
 
 /// Unified error type for wagonet operations.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum Error {
-    /// I/O error (connection, read, write, TLS handshake).
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -103,7 +103,6 @@ impl From<String> for Error {
         Error::Msg(s)
     }
 }
-
 /// Result type alias for wagonet operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 

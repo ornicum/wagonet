@@ -220,35 +220,35 @@ mod tests {
     async fn server_tls_ping_no_payload() {
         use tokio::io::duplex;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        
+
         // Create a duplex stream to simulate client-server communication
         let (mut client_stream, server_stream) = duplex(1024);
-        
+
         let mut server = ServerTLS::new(server_stream);
         server.set_timeout_config(TimeoutConfig {
             read_header: Duration::from_millis(500),
             ..Default::default()
         });
-        
+
         // Spawn server task
         let server_handle = tokio::spawn(async move {
             let (command, data_size) = server.read_command().await.unwrap();
             assert_eq!(command, 0);
             assert_eq!(data_size, 0);
         });
-        
+
         // Send ping from client side
         let request_header = RequestHeader::new(0, 0);
         let mut buf = Vec::new();
         request_header.encode(&mut buf).unwrap();
         client_stream.write_all(&buf).await.unwrap();
         client_stream.flush().await.unwrap();
-        
+
         // Read response (1 byte)
         let mut response = [0u8; 1];
         client_stream.read_exact(&mut response).await.unwrap();
         assert_eq!(response[0], 1); // OK status
-        
+
         server_handle.await.unwrap();
     }
 }

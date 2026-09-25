@@ -1,6 +1,6 @@
 [package]
 name = "wagonet"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 description = "High-performance async TCP/TLS transport library with custom protocol"
 repository = "https://github.com/ornicum/wagonet"

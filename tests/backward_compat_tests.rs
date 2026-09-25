@@ -42,15 +42,18 @@ async fn backward_compat_old_client_new_server() {
                 let _ = server.send_data(1, Some(b"OK")).await;
             }
         }
-    }).await;
+    })
+    .await;
 
     // Old client (no ping support, no keep_alive ping)
     let mut client = ClientTL::new(addr.to_string());
     client.set_keep_alive(true).await;
-    client.set_timeout_config(TimeoutConfig {
-        read_header: Duration::from_secs(10),
-        ..Default::default()
-    }).await;
+    client
+        .set_timeout_config(TimeoutConfig {
+            read_header: Duration::from_secs(10),
+            ..Default::default()
+        })
+        .await;
 
     // Send 3 requests without ping
     for i in 1..=3 {

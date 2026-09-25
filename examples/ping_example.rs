@@ -31,15 +31,17 @@ async fn main() -> wagonet::Result<()> {
     // Server: read_header timeout = 500ms, but client pings every 100ms
     let server_handle = tokio::spawn(async move {
         server_ready_clone.notify_one();
-        
+
         let (mut stream, _) = listener.accept().await.unwrap();
         connection_count_clone.fetch_add(1, Ordering::SeqCst);
-        eprintln!("[server] New connection accepted (total: {})", 
-            connection_count_clone.load(Ordering::SeqCst));
+        eprintln!(
+            "[server] New connection accepted (total: {})",
+            connection_count_clone.load(Ordering::SeqCst)
+        );
 
         let (reader, writer) = stream.split();
         let mut server = ServerTL::new(reader, writer);
-        
+
         // Short read_header timeout to demonstrate ping effectiveness
         server.set_timeout_config(TimeoutConfig {
             read_header: Duration::from_millis(500),
@@ -62,15 +64,21 @@ async fn main() -> wagonet::Result<()> {
             }
 
             eprintln!("[server] Got command={}, data_size={}", command, data_size);
-            
+
             let mut data = Vec::new();
             if data_size > 0 {
                 data = server.receive_data(data_size).await.unwrap();
-                eprintln!("[server] Received data: {:?}", String::from_utf8_lossy(&data));
+                eprintln!(
+                    "[server] Received data: {:?}",
+                    String::from_utf8_lossy(&data)
+                );
             }
 
             let response = format!("Echo: {}", String::from_utf8_lossy(&data));
-            server.send_data(1, Some(response.as_bytes())).await.unwrap();
+            server
+                .send_data(1, Some(response.as_bytes()))
+                .await
+                .unwrap();
             eprintln!("[server] Sent response");
         }
         eprintln!("[server] Connection closed");
@@ -81,15 +89,20 @@ async fn main() -> wagonet::Result<()> {
     // Client: keep_alive=true, ping_interval=100ms (much less than server's 500ms)
     let mut client = ClientTL::new(addr.clone());
     client.set_keep_alive(true).await;
-    client.set_timeout_config(TimeoutConfig {
-        read_header: Duration::from_millis(500),
-        ping_interval: Duration::from_millis(100),
-        ..Default::default()
-    }).await;
+    client
+        .set_timeout_config(TimeoutConfig {
+            read_header: Duration::from_millis(500),
+            ping_interval: Duration::from_millis(100),
+            ..Default::default()
+        })
+        .await;
 
     eprintln!("[client] Sending first request...");
     let response1 = client.handle_message(42, b"Hello").await?;
-    eprintln!("[client] Response 1: {:?}", String::from_utf8_lossy(&response1));
+    eprintln!(
+        "[client] Response 1: {:?}",
+        String::from_utf8_lossy(&response1)
+    );
 
     // Idle for 2 seconds - without ping, server would timeout after 500ms
     // With ping every 100ms, connection stays alive
@@ -98,13 +111,19 @@ async fn main() -> wagonet::Result<()> {
 
     eprintln!("[client] Sending second request after idle...");
     let response2 = client.handle_message(43, b"World").await?;
-    eprintln!("[client] Response 2: {:?}", String::from_utf8_lossy(&response2));
+    eprintln!(
+        "[client] Response 2: {:?}",
+        String::from_utf8_lossy(&response2)
+    );
 
     // Verify only one connection was made
     let final_count = connection_count.load(Ordering::SeqCst);
     eprintln!("[client] Total connections made: {}", final_count);
-    
-    assert_eq!(final_count, 1, "Expected exactly 1 connection (no reconnect during idle)");
+
+    assert_eq!(
+        final_count, 1,
+        "Expected exactly 1 connection (no reconnect during idle)"
+    );
     assert_eq!(response1, b"Echo: Hello");
     assert_eq!(response2, b"Echo: World");
 

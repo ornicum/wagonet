@@ -39,28 +39,30 @@ fn create_test_tls_acceptor() -> TlsAcceptor {
 
 #[tokio::test]
 async fn test_tcp_transport_success() {
-    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(|mut stream| async move {
-        let (reader, writer) = stream.split();
-        let mut server = ServerTL::new(reader, writer);
-        eprintln!("[server] waiting for command");
-        let (command, data_size) = server.read_command().await.unwrap();
-        eprintln!("[server] got command={}, data_size={}", command, data_size);
-        assert_eq!(command, 42);
-        assert_eq!(data_size, 12);
+    let (server_handle, server_shutdown, addr) =
+        spawn_server_with_shutdown(|mut stream| async move {
+            let (reader, writer) = stream.split();
+            let mut server = ServerTL::new(reader, writer);
+            eprintln!("[server] waiting for command");
+            let (command, data_size) = server.read_command().await.unwrap();
+            eprintln!("[server] got command={}, data_size={}", command, data_size);
+            assert_eq!(command, 42);
+            assert_eq!(data_size, 12);
 
-        eprintln!("[server] waiting for data");
-        let received_data = server.receive_data(data_size).await.unwrap();
-        eprintln!("[server] got data: {:?}", received_data);
-        assert_eq!(received_data, b"hello server");
+            eprintln!("[server] waiting for data");
+            let received_data = server.receive_data(data_size).await.unwrap();
+            eprintln!("[server] got data: {:?}", received_data);
+            assert_eq!(received_data, b"hello server");
 
-        let response_body = b"hello client";
-        eprintln!("[server] sending response");
-        server
-            .send_data(ResponseStatus::Ok.into(), Some(response_body))
-            .await
-            .unwrap();
-        eprintln!("[server] response sent");
-    }).await;
+            let response_body = b"hello client";
+            eprintln!("[server] sending response");
+            server
+                .send_data(ResponseStatus::Ok.into(), Some(response_body))
+                .await
+                .unwrap();
+            eprintln!("[server] response sent");
+        })
+        .await;
 
     let mut client = ClientTL::new(addr.to_string());
     let request_payload = b"hello server";
@@ -76,14 +78,16 @@ async fn test_tcp_transport_success() {
 
 #[tokio::test]
 async fn test_tcp_transport_buffer_overflow() {
-    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(|mut stream| async move {
-        let (reader, writer) = stream.split();
-        let mut server = ServerTL::new(reader, writer);
-        server.set_max_buffer_size(5);
+    let (server_handle, server_shutdown, addr) =
+        spawn_server_with_shutdown(|mut stream| async move {
+            let (reader, writer) = stream.split();
+            let mut server = ServerTL::new(reader, writer);
+            server.set_max_buffer_size(5);
 
-        let res = server.read_command().await;
-        assert!(res.is_err());
-    }).await;
+            let res = server.read_command().await;
+            assert!(res.is_err());
+        })
+        .await;
 
     let mut client = ClientTL::new(addr.to_string());
     let large_payload = b"this payload is too long for server";
@@ -98,18 +102,20 @@ async fn test_tcp_transport_buffer_overflow() {
 
 #[tokio::test]
 async fn test_tcp_transport_no_answer() {
-    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(|mut stream| async move {
-        let (reader, writer) = stream.split();
-        let mut server = ServerTL::new(reader, writer);
-        let (_, data_size) = server.read_command().await.unwrap();
-        let received_data = server.receive_data(data_size).await.unwrap();
-        assert_eq!(received_data, b"fire and forget");
+    let (server_handle, server_shutdown, addr) =
+        spawn_server_with_shutdown(|mut stream| async move {
+            let (reader, writer) = stream.split();
+            let mut server = ServerTL::new(reader, writer);
+            let (_, data_size) = server.read_command().await.unwrap();
+            let received_data = server.receive_data(data_size).await.unwrap();
+            assert_eq!(received_data, b"fire and forget");
 
-        server
-            .send_data(ResponseStatus::Ok.into(), None)
-            .await
-            .unwrap();
-    }).await;
+            server
+                .send_data(ResponseStatus::Ok.into(), None)
+                .await
+                .unwrap();
+        })
+        .await;
 
     let mut client = ClientTL::new(addr.to_string());
     let payload = b"fire and forget";
@@ -128,21 +134,23 @@ async fn test_tcp_transport_no_answer() {
 #[tokio::test]
 async fn test_tls_transport_success() {
     let acceptor = create_test_tls_acceptor();
-    let (server_handle, server_shutdown, addr) = spawn_tls_server_with_shutdown(acceptor, |stream, acceptor| async move {
-        let tls_stream = acceptor.accept(stream).await.unwrap();
-        let mut server = ServerTLS::new(tls_stream);
+    let (server_handle, server_shutdown, addr) =
+        spawn_tls_server_with_shutdown(acceptor, |stream, acceptor| async move {
+            let tls_stream = acceptor.accept(stream).await.unwrap();
+            let mut server = ServerTLS::new(tls_stream);
 
-        let (command, data_size) = server.read_command().await.unwrap();
-        assert_eq!(command, 77);
+            let (command, data_size) = server.read_command().await.unwrap();
+            assert_eq!(command, 77);
 
-        let received_data = server.receive_data(data_size).await.unwrap();
-        assert_eq!(received_data, b"secure hello");
+            let received_data = server.receive_data(data_size).await.unwrap();
+            assert_eq!(received_data, b"secure hello");
 
-        server
-            .send_data(ResponseStatus::Ok.into(), Some(b"secure reply"))
-            .await
-            .unwrap();
-    }).await;
+            server
+                .send_data(ResponseStatus::Ok.into(), Some(b"secure reply"))
+                .await
+                .unwrap();
+        })
+        .await;
 
     let mut client = ClientTLS::new(addr.to_string());
     client.set_accept_invalid_certs(true);
@@ -192,15 +200,18 @@ async fn keep_alive_cycle_true_false_true() {
                 let _ = server.send_data(1, Some(b"OK")).await;
             }
         }
-    }).await;
+    })
+    .await;
 
     let mut client = ClientTL::new(addr.to_string());
     client.set_keep_alive(true).await;
-    client.set_timeout_config(wagonet::TimeoutConfig {
-        read_header: Duration::from_millis(500),
-        ping_interval: Duration::from_millis(200),
-        ..Default::default()
-    }).await;
+    client
+        .set_timeout_config(wagonet::TimeoutConfig {
+            read_header: Duration::from_millis(500),
+            ping_interval: Duration::from_millis(200),
+            ..Default::default()
+        })
+        .await;
 
     // Send one request to establish connection
     let _ = client.handle_message(1, b"hello").await.unwrap();
@@ -208,26 +219,38 @@ async fn keep_alive_cycle_true_false_true() {
     // Phase 1: true - wait for pings
     tokio::time::sleep(Duration::from_millis(600)).await;
     let pings_phase1 = ping_count.load(std::sync::atomic::Ordering::SeqCst);
-    assert!(pings_phase1 >= 2, "Phase 1 (true): Expected at least 2 pings, got {}", pings_phase1);
+    assert!(
+        pings_phase1 >= 2,
+        "Phase 1 (true): Expected at least 2 pings, got {}",
+        pings_phase1
+    );
 
     // Phase 2: false - pings should stop
     client.set_keep_alive(false).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     let pings_phase2 = ping_count.load(std::sync::atomic::Ordering::SeqCst);
-    assert_eq!(pings_phase2, pings_phase1, "Phase 2 (false): Ping count should not increase");
+    assert_eq!(
+        pings_phase2, pings_phase1,
+        "Phase 2 (false): Ping count should not increase"
+    );
 
     // Phase 3: true again - pings should resume
     client.set_keep_alive(true).await;
     // Need to send a message to restart ping task (connect starts it)
     let _ = client.handle_message(2, b"restart").await.unwrap();
-    
+
     // Wait longer for connection establishment and first ping
     tokio::time::sleep(Duration::from_millis(800)).await;
 
     let pings_phase3 = ping_count.load(std::sync::atomic::Ordering::SeqCst);
     // Just check that some pings happened after re-enable
     // (The exact count depends on timing, but should be > 0)
-    assert!(pings_phase3 > pings_phase2, "Phase 3 (true): Expected more pings after re-enable, got {} -> {}", pings_phase2, pings_phase3);
+    assert!(
+        pings_phase3 > pings_phase2,
+        "Phase 3 (true): Expected more pings after re-enable, got {} -> {}",
+        pings_phase2,
+        pings_phase3
+    );
 
     client.disconnect().await.unwrap();
     server_shutdown.notify_one();

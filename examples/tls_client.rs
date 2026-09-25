@@ -21,13 +21,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Enable keep-alive
     client.set_keep_alive(true).await;
-    client.set_timeout_config(TimeoutConfig {
-        keep_alive: Some(KeepAliveConfig {
-            time: std::time::Duration::from_secs(60),
-            interval: std::time::Duration::from_secs(15),
-        }),
-        ..Default::default()
-    }).await;
+    client
+        .set_timeout_config(TimeoutConfig {
+            keep_alive: Some(KeepAliveConfig {
+                time: std::time::Duration::from_secs(60),
+                interval: std::time::Duration::from_secs(15),
+            }),
+            ..Default::default()
+        })
+        .await;
 
     println!("Connecting with TLS...");
     client.connect().await?;
