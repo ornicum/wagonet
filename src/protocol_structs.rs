@@ -1,5 +1,19 @@
 use strum_macros::{Display, FromRepr};
 
+/// Protocol command codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Command {
+    /// Ping command (empty request/response for keep-alive).
+    Ping = 0,
+}
+
+impl From<Command> for u32 {
+    fn from(cmd: Command) -> Self {
+        cmd as u32
+    }
+}
+
 #[derive(Debug, Display, Clone, Copy, FromRepr, PartialEq)]
 #[repr(u8)]
 pub enum ResponseStatus {

@@ -1,3 +1,4 @@
+use crate::protocol_structs::Command;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::error;
@@ -7,6 +8,7 @@ use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
 use crate::timeout_config::TimeoutConfig;
+
 /// Combined trait for TLS streams that implement AsyncRead + AsyncWrite + Unpin + Send.
 pub trait TlsStreamTrait: AsyncRead + AsyncWrite + Unpin + Send {}
 
@@ -56,6 +58,8 @@ impl<'a> ServerTLS<'a> {
 
     /// Read a command header from the client.
     /// Returns `(command, data_size)` where `data_size` is the payload size in bytes.
+    /// For Ping command (command=0, data_size=0), sends a 1-byte OK response and returns Ok((0, 0)).
+    /// The caller should check for command == 0 and skip receive_data/send_data.
     pub async fn read_command(&mut self) -> Result<(u32, usize)> {
         self.buffer.resize(RequestHeader::encoded_len(), 0);
 
@@ -79,6 +83,14 @@ impl<'a> ServerTLS<'a> {
         let req_header = RequestHeader::decode(&mut self.buffer.as_slice())?;
         self.buffer.clear();
         let data_size = req_header.data_size as usize;
+
+        // Handle Ping command specially: empty request, 1-byte OK response, no payload.
+        if req_header.command == Command::Ping.into() && data_size == 0 {
+            // Send 1-byte response: status=Ok(1), data_size=0 (default encoding)
+            self.send_response_header(1, 0).await?;
+            return Ok((Command::Ping.into(), 0));
+        }
+
         if data_size > self.max_buffer_size {
             self.send_response_header(7, 0).await?;
             error!("Request rejected: data size {data_size} exceeds MAX_BUFFER_SIZE");
@@ -194,5 +206,49 @@ impl<'a> ServerTLS<'a> {
         self.tls_stream.flush().await?;
         self.buffer.clear();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::request_header::RequestHeader;
+    use crate::timeout_config::TimeoutConfig;
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn server_tls_ping_no_payload() {
+        use tokio::io::duplex;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        
+        // Create a duplex stream to simulate client-server communication
+        let (mut client_stream, server_stream) = duplex(1024);
+        
+        let mut server = ServerTLS::new(server_stream);
+        server.set_timeout_config(TimeoutConfig {
+            read_header: Duration::from_millis(500),
+            ..Default::default()
+        });
+        
+        // Spawn server task
+        let server_handle = tokio::spawn(async move {
+            let (command, data_size) = server.read_command().await.unwrap();
+            assert_eq!(command, 0);
+            assert_eq!(data_size, 0);
+        });
+        
+        // Send ping from client side
+        let request_header = RequestHeader::new(0, 0);
+        let mut buf = Vec::new();
+        request_header.encode(&mut buf).unwrap();
+        client_stream.write_all(&buf).await.unwrap();
+        client_stream.flush().await.unwrap();
+        
+        // Read response (1 byte)
+        let mut response = [0u8; 1];
+        client_stream.read_exact(&mut response).await.unwrap();
+        assert_eq!(response[0], 1); // OK status
+        
+        server_handle.await.unwrap();
     }
 }

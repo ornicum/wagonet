@@ -1,3 +1,4 @@
+use crate::protocol_structs::Command;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tracing::error;
@@ -7,7 +8,6 @@ use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
 use crate::timeout_config::TimeoutConfig;
-
 /// Plain TCP server handler for a single connection.
 ///
 /// Processes incoming requests using the custom binary protocol:
@@ -57,6 +57,8 @@ impl<'a> ServerTL<'a> {
 
     /// Read a command header from the client.
     /// Returns `(command, data_size)` where `data_size` is the payload size in bytes.
+    /// For Ping command (command=0, data_size=0), sends a 1-byte OK response and returns Ok((0, 0)).
+    /// The caller should check for command == 0 and skip receive_data/send_data.
     pub async fn read_command(&mut self) -> Result<(u32, usize)> {
         self.buffer.resize(RequestHeader::encoded_len(), 0);
 
@@ -80,6 +82,14 @@ impl<'a> ServerTL<'a> {
         let req_header = RequestHeader::decode(&mut self.buffer.as_slice())?;
         self.buffer.clear();
         let data_size = req_header.data_size as usize;
+
+        // Handle Ping command specially: empty request, 1-byte OK response, no payload.
+        if req_header.command == Command::Ping.into() && data_size == 0 {
+            // Send 1-byte response: status=Ok(1), data_size=0 (default encoding)
+            self.send_response_header(1, 0).await?;
+            return Ok((Command::Ping.into(), 0));
+        }
+
         if data_size > self.max_buffer_size {
             self.send_response_header(7, 0).await?;
             error!("Request rejected: data size {data_size} exceeds MAX_BUFFER_SIZE");

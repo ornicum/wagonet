@@ -110,6 +110,7 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 pub mod client_tl;
 pub mod client_tls;
 mod common;
+pub mod ping;
 pub mod protocol_structs;
 mod request_header;
 mod response_header;
