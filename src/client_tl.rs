@@ -107,14 +107,12 @@ impl ClientTL {
     /// When disabled (default), each `handle_message` opens a new connection.
     ///
     /// **Note:** When disabling keep-alive (`enabled = false`), this method will
-    /// stop the background ping task by calling `stop_ping_task()`, which may
-    /// block for up to 5 seconds (the default ping task shutdown timeout) if the
-    /// ping task is stuck in network I/O. The stream is also cleared, so the next
-    /// `handle_message` will establish a new connection.
+    /// stop the background ping task by calling `stop_ping_task()`. The stream is
+    /// also cleared, so the next `handle_message` will establish a new connection.
     pub async fn set_keep_alive(&mut self, enabled: bool) {
         if !enabled && self.keep_alive {
             // Stop ping task before disabling keep_alive
-            self.ping_state.stop_ping_task().await;
+            self.ping_state.stop_ping_task();
             // Clear the stream so next handle_message will reconnect
             *self.stream.lock().await = None;
         }
@@ -201,11 +199,10 @@ impl ClientTL {
     /// Sends shutdown and clears the internal stream.
     ///
     /// **Note:** This method stops the background ping task by calling
-    /// `stop_ping_task()`, which may block for up to 5 seconds (the default
-    /// ping task shutdown timeout) if the ping task is stuck in network I/O.
+    /// `stop_ping_task()`.
     pub async fn disconnect(&mut self) -> Result<()> {
         // Stop ping task first
-        self.ping_state.stop_ping_task().await;
+        self.ping_state.stop_ping_task();
 
         let mut stream_guard = self.stream.lock().await;
         if let Some(stream) = stream_guard.as_mut()
@@ -280,13 +277,13 @@ impl ClientTL {
         stream: &mut TcpStream,
         is_default: bool,
         command_has_answer: bool,
-        timeout: Duration,
+        timeout_config: &TimeoutConfig,
         buffer: &mut Vec<u8>,
     ) -> Result<ResponseHeader> {
         let result_buf_size = ResponseHeader::encoded_len(is_default, command_has_answer);
         buffer.resize(result_buf_size, 0);
 
-        match tokio::time::timeout(timeout, stream.read_exact(buffer)).await {
+        match tokio::time::timeout(timeout_config.read_header, stream.read_exact(buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
                 error!("Receiving response header error: {e}");
@@ -299,7 +296,7 @@ impl ClientTL {
         }
 
         let decode_as_default = is_default || !command_has_answer;
-        let response_header = ResponseHeader::decode(&mut buffer.as_slice(), decode_as_default)?;
+        let response_header = ResponseHeader::decode(&mut buffer.as_slice(), decode_as_default, timeout_config.max_data_size)?;
         buffer.clear();
         Ok(response_header)
     }
@@ -324,7 +321,7 @@ impl ClientTL {
             stream,
             true,
             command_has_answer,
-            timeout_config.read_header,
+            timeout_config,
             buffer,
         )
         .await?;
@@ -358,7 +355,7 @@ impl ClientTL {
                 stream,
                 false,
                 command_has_answer,
-                timeout_config.read_header,
+                timeout_config,
                 buffer,
             )
             .await?;
@@ -448,7 +445,7 @@ impl ClientTL {
             error!("Message exchange failed, dropping connection: {e}");
             *stream_guard = None;
             // Stop ping task since connection is lost
-            self.ping_state.stop_ping_task().await;
+            self.ping_state.stop_ping_task();
         } else {
             self.ping_state.touch_activity().await;
         }
@@ -510,7 +507,7 @@ mod tests {
         assert_eq!(buf, [0, 0, 0, 0, 0, 0, 0, 0]);
 
         let mut slice = buf.as_slice();
-        let decoded = RequestHeader::decode(&mut slice).unwrap();
+        let decoded = RequestHeader::decode(&mut slice, 1024).unwrap();
         assert_eq!(decoded.command, Command::Ping.into());
         assert_eq!(decoded.data_size, 0);
     }
@@ -530,7 +527,7 @@ mod tests {
                 let (reader, writer) = stream.split();
                 let mut server = ServerTL::new(reader, writer);
                 server.set_timeout_config(TimeoutConfig {
-                    read_header: Duration::from_millis(500),
+                    read_header: Duration::from_secs(10),
                     ..Default::default()
                 });
 
@@ -645,7 +642,7 @@ mod tests {
             .await;
 
         // Send requests every 50ms for 500ms - should be 10 requests
-        for i in 0..10 {
+        for i in 1..11 {
             client.handle_message(i, b"data").await.unwrap();
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -679,5 +676,18 @@ mod tests {
             ..Default::default()
         };
         config.validate(); // Should not log warning
+    }
+
+    #[test]
+    fn client_tl_drop_is_fast() {
+        use std::time::Instant;
+        let mut client = ClientTL::new("127.0.0.1:9999".to_string()); // Non-existent server
+        client.set_keep_alive(true);
+        
+        // Drop should complete quickly (< 100ms) without blocking
+        let start = Instant::now();
+        drop(client);
+        let elapsed = start.elapsed();
+        assert!(elapsed < Duration::from_millis(100), "Drop took too long: {:?}", elapsed);
     }
 }

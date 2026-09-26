@@ -4,6 +4,7 @@ use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tracing::error;
 
 use crate::Result;
+use crate::Error;
 use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
@@ -58,6 +59,7 @@ impl<'a> ServerTL<'a> {
     /// Read a command header from the client.
     /// Returns `Some((command, data_size))` for regular commands where `data_size` is the payload size.
     /// For Ping command (command=0, data_size=0), sends a 1-byte OK response and returns `Ok(None)`.
+    /// If Ping command has data_size != 0, returns an error (protocol violation).
     /// The caller can use `if let Some((cmd, sz)) = server.read_command().await?` to handle regular commands.
     pub async fn read_command(&mut self) -> Result<Option<(u32, usize)>> {
         self.buffer.resize(RequestHeader::encoded_len(), 0);
@@ -79,12 +81,17 @@ impl<'a> ServerTL<'a> {
             }
         }
 
-        let req_header = RequestHeader::decode(&mut self.buffer.as_slice())?;
+        let req_header = RequestHeader::decode(&mut self.buffer.as_slice(), self.max_buffer_size)?;
         self.buffer.clear();
         let data_size = req_header.data_size as usize;
 
         // Handle Ping command specially: empty request, 1-byte OK response, no payload.
-        if req_header.command == Command::Ping.into() && data_size == 0 {
+        // Ping must have data_size=0, otherwise it's a protocol violation.
+        if req_header.command == Command::Ping.into() {
+            if data_size != 0 {
+                self.send_response_header(7, 0).await?;
+                return Err(Error::Protocol("Ping must have data_size=0".into()));
+            }
             // Send 1-byte response: status=Ok(1), data_size=0 (default encoding)
             self.send_response_header(1, 0).await?;
             return Ok(None);
@@ -148,7 +155,7 @@ impl<'a> ServerTL<'a> {
             }
         }
 
-        let res_header = ResponseHeader::decode(&mut self.buffer.as_slice(), is_default)?;
+        let res_header = ResponseHeader::decode(&mut self.buffer.as_slice(), is_default, self.timeout_config.max_data_size)?;
         self.buffer.clear();
         Ok(res_header)
     }
@@ -302,7 +309,7 @@ mod tests {
         client_stream.read_exact(&mut resp_header_buf).await.unwrap();
         let mut slice = &resp_header_buf[..];
         // is_default = false because data_size > 0
-        let resp_header = ResponseHeader::decode(&mut slice, false).unwrap();
+        let resp_header = ResponseHeader::decode(&mut slice, false, 1024).unwrap();
         assert_eq!(resp_header.status, 1); // OK status
         assert_eq!(resp_header.data_size, 2);
 
@@ -317,6 +324,52 @@ mod tests {
         let mut payload = vec![0u8; resp_header.data_size as usize];
         client_stream.read_exact(&mut payload).await.unwrap();
         assert_eq!(payload, b"OK");
+
+        server_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn server_tl_ping_invalid_data_size() {
+        use crate::request_header::RequestHeader;
+        use crate::protocol_structs::Command;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let (reader, writer) = stream.split();
+            let mut server = ServerTL::new(reader, writer);
+            server.set_timeout_config(TimeoutConfig {
+                read_header: Duration::from_millis(500),
+                ..Default::default()
+            });
+
+            // Ping with data_size > 0 should return error
+            let result = server.read_command().await;
+            assert!(result.is_err());
+            match result.unwrap_err() {
+                Error::Protocol(msg) => {
+                    assert!(msg.contains("Ping must have data_size=0"));
+                }
+                _ => panic!("Expected Protocol error"),
+            }
+        });
+
+        // Send ping with data_size > 0 from client side
+        let mut client_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let request_header = RequestHeader::new(Command::Ping.into(), 10); // data_size=10 (invalid)
+        let mut buf = Vec::new();
+        request_header.encode(&mut buf).unwrap();
+        client_stream.write_all(&buf).await.unwrap();
+        client_stream.flush().await.unwrap();
+
+        // Read response (should be error status 7)
+        let mut response = [0u8; 1];
+        client_stream.read_exact(&mut response).await.unwrap();
+        assert_eq!(response[0], 7); // InvalidDataSize status
 
         server_handle.await.unwrap();
     }

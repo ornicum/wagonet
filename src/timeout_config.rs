@@ -11,6 +11,9 @@ pub struct TimeoutConfig {
     /// Interval for sending ping requests to keep the connection alive.
     /// Default: 30 seconds. Must be less than read_header to be effective.
     pub ping_interval: Duration,
+    /// Maximum allowed data size in bytes for request/response payloads.
+    /// Default: 10 MB. Protects against OOM from malicious oversized payloads.
+    pub max_data_size: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -37,6 +40,7 @@ impl Default for TimeoutConfig {
             write: Duration::from_secs(60),
             keep_alive: None,
             ping_interval: Duration::from_secs(30),
+            max_data_size: 10 * 1024 * 1024,
         }
     }
 }
@@ -75,6 +79,12 @@ impl TimeoutConfig {
                 self.ping_interval = Duration::ZERO;
             }
         }
+        self
+    }
+    /// Set maximum data size for request/response payloads.
+    /// Values <= 0 reset to default (10 MB).
+    pub fn with_max_data_size(mut self, max_data_size: usize) -> Self {
+        self.max_data_size = if max_data_size > 0 { max_data_size } else { 10 * 1024 * 1024 };
         self
     }
 }

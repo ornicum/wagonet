@@ -241,22 +241,17 @@ impl PingState {
 
     /// Stop the background ping task.
     ///
-    /// Signals the ping task to stop and waits for it to finish with a
-    /// timeout of 5 seconds. If the ping task is stuck in network I/O
-    /// (e.g., waiting for a response from a dead connection), this method
-    /// will block for up to 5 seconds before returning.
-    ///
-    /// **Note:** This method may block for up to 5 seconds if the ping task
-    /// is stuck in network I/O. Callers should be aware of this potential
-    /// blocking behavior, especially when called from async contexts that
-    /// require low latency.
-    pub async fn stop_ping_task(&self) {
-        *self.should_stop.lock().await = true;
-
-        let mut task_handle = self.task_handle.lock().await;
-        if let Some(handle) = task_handle.take() {
-            // Wait for task to finish (with timeout)
-            let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
+    /// Signals the ping task to stop and aborts the task handle.
+    /// Does not wait for the task to finish - the task will exit
+    /// when it next checks the should_stop flag.
+    pub fn stop_ping_task(&self) {
+        if let Ok(mut should_stop) = self.should_stop.try_lock() {
+            *should_stop = true;
+        }
+        if let Ok(mut task_handle) = self.task_handle.try_lock()
+            && let Some(handle) = task_handle.take()
+        {
+            handle.abort();
         }
     }
 }
@@ -343,7 +338,7 @@ mod tests {
         assert_eq!(buf, [0, 0, 0, 0, 0, 0, 0, 0]);
 
         let mut slice = buf.as_slice();
-        let decoded = RequestHeader::decode(&mut slice).unwrap();
+        let decoded = RequestHeader::decode(&mut slice, 1024).unwrap();
         assert_eq!(decoded.command, Command::Ping.into());
         assert_eq!(decoded.data_size, 0);
     }

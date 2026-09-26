@@ -23,7 +23,7 @@ impl RequestHeader {
         Ok(())
     }
 
-    pub fn decode(buf: &mut &[u8]) -> Result<Self> {
+    pub fn decode(buf: &mut &[u8], max_data_size: usize) -> Result<Self> {
         if buf.len() < Self::REQUEST_HEADER_SIZE {
             return Err(Error::Protocol(
                 "Not enough bytes to decode RequestHeader".to_string(),
@@ -37,6 +37,13 @@ impl RequestHeader {
         let mut size_bytes = [0u8; 4];
         size_bytes.copy_from_slice(&buf[4..8]);
         let data_size = u32::from_be_bytes(size_bytes);
+
+        if data_size as usize > max_data_size {
+            return Err(Error::BufferOverflow {
+                expected: data_size as usize,
+                limit: max_data_size,
+            });
+        }
 
         *buf = &buf[Self::REQUEST_HEADER_SIZE..];
 
@@ -54,8 +61,24 @@ mod tests {
         let mut buf = Vec::with_capacity(RequestHeader::encoded_len());
         header.encode(&mut buf).unwrap();
         assert_eq!(RequestHeader::encoded_len(), buf.len());
-        let header2 = RequestHeader::decode(&mut buf.as_slice()).unwrap();
+        let header2 = RequestHeader::decode(&mut buf.as_slice(), 1024).unwrap();
         assert_eq!(header.command, header2.command);
         assert_eq!(header.data_size, header2.data_size);
+    }
+
+    #[test]
+    fn test_request_header_decode_oversized() {
+        let header = RequestHeader::new(1, 1000);
+        let mut buf = Vec::with_capacity(RequestHeader::encoded_len());
+        header.encode(&mut buf).unwrap();
+        let result = RequestHeader::decode(&mut buf.as_slice(), 100);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::BufferOverflow { expected, limit } => {
+                assert_eq!(expected, 1000);
+                assert_eq!(limit, 100);
+            }
+            _ => panic!("Expected BufferOverflow error"),
+        }
     }
 }

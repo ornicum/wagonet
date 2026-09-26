@@ -34,7 +34,7 @@ impl ResponseHeader {
         Ok(())
     }
 
-    pub fn decode(buf: &mut &[u8], is_default: bool) -> Result<Self> {
+    pub fn decode(buf: &mut &[u8], is_default: bool, max_data_size: usize) -> Result<Self> {
         if buf.is_empty() {
             return Err(Error::Protocol(
                 "Not enough bytes to decode ResponseHeader".to_string(),
@@ -58,6 +58,14 @@ impl ResponseHeader {
             let mut size_bytes = [0u8; 4];
             size_bytes.copy_from_slice(&buf[1..5]);
             let data_size = u32::from_be_bytes(size_bytes);
+
+            if data_size as usize > max_data_size {
+                return Err(Error::BufferOverflow {
+                    expected: data_size as usize,
+                    limit: max_data_size,
+                });
+            }
+
             *buf = &buf[Self::RESPONSE_HEADER_SIZE..];
             Ok(Self { status, data_size })
         }
@@ -74,8 +82,24 @@ mod tests {
         let mut buf = Vec::with_capacity(ResponseHeader::RESPONSE_HEADER_SIZE);
         header.encode(&mut buf, false).unwrap();
         assert_eq!(ResponseHeader::RESPONSE_HEADER_SIZE, buf.len());
-        let header2 = ResponseHeader::decode(&mut buf.as_slice(), false).unwrap();
+        let header2 = ResponseHeader::decode(&mut buf.as_slice(), false, 1024).unwrap();
         assert_eq!(header.status, header2.status);
         assert_eq!(header.data_size, header2.data_size);
+    }
+
+    #[test]
+    fn test_response_header_decode_oversized() {
+        let header = ResponseHeader::new(3, 1000);
+        let mut buf = Vec::with_capacity(ResponseHeader::RESPONSE_HEADER_SIZE);
+        header.encode(&mut buf, false).unwrap();
+        let result = ResponseHeader::decode(&mut buf.as_slice(), false, 100);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            Error::BufferOverflow { expected, limit } => {
+                assert_eq!(expected, 1000);
+                assert_eq!(limit, 100);
+            }
+            _ => panic!("Expected BufferOverflow error"),
+        }
     }
 }
