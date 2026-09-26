@@ -119,45 +119,24 @@ impl ClientTL {
             *self.stream.lock().await = None;
         }
         self.keep_alive = enabled;
-        let mut config = self.ping_state.config.lock().await;
+        let config_arc = self.ping_state.config();
+        let mut config = config_arc.lock().await;
         config.enabled = enabled && config.interval > Duration::ZERO;
     }
-
     /// Set timeout configuration (connect, read_header, read_data, write, keep_alive, ping_interval).
-    pub async fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
-        let mut config = timeout_config.clone();
-        // Clamp ping_interval to be less than read_header
-        if config.ping_interval >= config.read_header {
-            if config.read_header > Duration::ZERO {
-                // Clamp to read_header - 1s, but ensure at least 100ms remains if possible
-                let clamped = config.read_header.saturating_sub(Duration::from_secs(1));
-                config.ping_interval = if clamped == Duration::ZERO
-                    && config.read_header >= Duration::from_millis(200)
-                {
-                    // If subtracting 1s gives 0 but read_header >= 200ms, use read_header / 2
-                    config.read_header / 2
-                } else {
-                    clamped
-                };
-                tracing::warn!(
-                    "ping_interval ({:?}) >= read_header ({:?}), clamping ping_interval to {:?}",
-                    timeout_config.ping_interval,
-                    config.read_header,
-                    config.ping_interval
-                );
-            } else {
-                config.ping_interval = Duration::ZERO;
-                tracing::warn!("read_header is zero, disabling ping (ping_interval = 0)");
-            }
-        }
-        config.validate();
+    pub async fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) -> Result<()> {
+        let config = timeout_config.clone().with_ping_interval(timeout_config.ping_interval);
+        config.validate()?;
         let ping_enabled = self.keep_alive && config.ping_interval > Duration::ZERO;
-        let mut ping_config = self.ping_state.config.lock().await;
+        let config_arc = self.ping_state.config();
+        let mut ping_config = config_arc.lock().await;
         ping_config.interval = config.ping_interval;
         ping_config.enabled = ping_enabled;
         // Also update timeout_config in ping_state for dynamic read_header
-        *self.ping_state.timeout_config.lock().await = config.clone();
+        let timeout_arc = self.ping_state.timeout_config();
+        *timeout_arc.lock().await = config.clone();
         self.timeout_config = config;
+        Ok(())
     }
 
     /// Explicitly establish a TCP connection with retry logic.
@@ -497,13 +476,13 @@ impl ClientTL {
 impl Drop for ClientTL {
     fn drop(&mut self) {
         // Abort the ping task if it's running
-        if let Ok(mut task_handle) = self.ping_state.task_handle.try_lock()
+        if let Ok(mut task_handle) = self.ping_state.task_handle().try_lock()
             && let Some(handle) = task_handle.take()
         {
             handle.abort();
         }
         // Signal stop to the ping task
-        if let Ok(mut should_stop) = self.ping_state.should_stop.try_lock() {
+        if let Ok(mut should_stop) = self.ping_state.should_stop().try_lock() {
             *should_stop = true;
         }
     }

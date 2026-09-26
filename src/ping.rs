@@ -43,17 +43,17 @@ impl Default for PingConfig {
 #[derive(Debug)]
 pub struct PingState {
     /// Time of last activity (any send/receive).
-    pub last_activity: Arc<Mutex<Instant>>,
+    last_activity: Arc<Mutex<Instant>>,
     /// Mutex to prevent ping from racing with regular requests.
-    pub in_flight: Arc<Mutex<()>>,
+    in_flight: Arc<Mutex<()>>,
     /// Handle to the background ping task (None if not running).
-    pub task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    task_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     /// Whether the ping task should stop.
-    pub should_stop: Arc<Mutex<bool>>,
+    should_stop: Arc<Mutex<bool>>,
     /// Ping configuration (interval, enabled).
-    pub config: Arc<Mutex<PingConfig>>,
+    config: Arc<Mutex<PingConfig>>,
     /// Timeout configuration for ping (read_header for response, etc.).
-    pub timeout_config: Arc<Mutex<TimeoutConfig>>,
+    timeout_config: Arc<Mutex<TimeoutConfig>>,
 }
 
 impl PingState {
@@ -100,6 +100,53 @@ impl PingState {
     /// Returns None if a request is in flight (ping should wait).
     pub async fn try_acquire_in_flight_for_ping(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
         self.in_flight.try_lock().ok()
+    }
+
+    /// Get a reference to the last activity timestamp mutex.
+    /// Allows reading the last activity time without modifying it.
+    pub fn last_activity(&self) -> Arc<Mutex<Instant>> {
+        self.last_activity.clone()
+    }
+
+    /// Get a reference to the in-flight mutex.
+    /// Allows acquiring the lock for coordinating with ping.
+    pub fn in_flight(&self) -> Arc<Mutex<()>> {
+        self.in_flight.clone()
+    }
+
+    /// Get a reference to the ping configuration mutex.
+    /// Allows reading/modifying ping configuration.
+    pub fn config(&self) -> Arc<Mutex<PingConfig>> {
+        self.config.clone()
+    }
+
+    /// Get a reference to the timeout configuration mutex.
+    /// Allows reading/modifying timeout configuration.
+    pub fn timeout_config(&self) -> Arc<Mutex<TimeoutConfig>> {
+        self.timeout_config.clone()
+    }
+
+    /// Get a reference to the should_stop flag mutex.
+    /// Allows signaling the ping task to stop.
+    pub fn should_stop(&self) -> Arc<Mutex<bool>> {
+        self.should_stop.clone()
+    }
+
+    /// Get a reference to the task handle mutex.
+    /// Allows managing the background task handle.
+    pub fn task_handle(&self) -> &Mutex<Option<tokio::task::JoinHandle<()>>> {
+        &self.task_handle
+    }
+
+    /// Set the should_stop flag to signal the ping task to stop.
+    pub async fn set_should_stop(&self, val: bool) {
+        *self.should_stop.lock().await = val;
+    }
+
+    /// Take the task handle, leaving None in its place.
+    pub async fn take_task_handle(&self) -> Option<tokio::task::JoinHandle<()>> {
+        let mut guard = self.task_handle.lock().await;
+        guard.take()
     }
 
     /// Start the background ping task.
@@ -283,6 +330,8 @@ where
 mod tests {
     use crate::protocol_structs::Command;
     use crate::request_header::RequestHeader;
+    use crate::timeout_config::TimeoutConfig;
+    use super::{PingState, PingConfig};
 
     #[test]
     fn ping_header_codec() {
@@ -297,5 +346,21 @@ mod tests {
         let decoded = RequestHeader::decode(&mut slice).unwrap();
         assert_eq!(decoded.command, Command::Ping.into());
         assert_eq!(decoded.data_size, 0);
+    }
+
+    #[tokio::test]
+    async fn pingstate_set_should_stop_and_take_task_handle() {
+        let ping_state = PingState::new(PingConfig::default(), TimeoutConfig::default());
+        
+        // Test set_should_stop
+        ping_state.set_should_stop(true).await;
+        assert!(*ping_state.should_stop().lock().await);
+        
+        ping_state.set_should_stop(false).await;
+        assert!(!*ping_state.should_stop().lock().await);
+        
+        // Test take_task_handle (should return None initially)
+        let handle = ping_state.take_task_handle().await;
+        assert!(handle.is_none());
     }
 }

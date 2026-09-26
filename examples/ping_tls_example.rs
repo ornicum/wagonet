@@ -107,7 +107,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             ping_interval: Duration::from_millis(100),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     eprintln!("[client] Sending first request...");
     let response1 = client.handle_message(42, b"Hello").await?;

@@ -36,10 +36,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   // - Loop simply continues
   ```
 
+- **`PingState` fields privatized**: All 6 fields (`last_activity`, `in_flight`, `task_handle`, `should_stop`, `config`, `timeout_config`) are now private. Added getters (`last_activity()`, `in_flight()`, `config()`, `timeout_config()`, `should_stop()`, `task_handle()`) and mutation methods (`set_should_stop()`, `take_task_handle()`).
+
+- **`TimeoutConfig::validate()` return type changed**: `()` → `Result<()>`. Now returns `Error::Config` when invariant `ping_interval < read_header` is violated.
+
+- **`TimeoutConfig::with_ping_interval()` added**: New builder method with automatic clamping to maintain `ping_interval < read_header`.
+
+- **`set_timeout_config()` return type changed**: `()` → `Result<()>`. May return `Error::Config` if validation fails.
+
+  **Migration for PingState/TimeoutConfig:**
+
+  ```rust
+  // OLD CODE (does not compile):
+  ping_state.config.lock().await.enabled = true;
+  timeout_config.validate();  // ignoring result
+  client.set_timeout_config(config).await;
+
+  // NEW CODE:
+  let mut config = ping_state.config().lock().await;
+  config.enabled = true;  // via getter
+  timeout_config.validate()?;  // must check result
+  client.set_timeout_config(config).await?;
+  ```
+
 ### Added
 
 - Unit test `server_tl_regular_command` verifying `read_command` returns `Ok(Some(...))` for regular (non-ping) commands
 - Unit test `server_tls_ping_no_payload` verifying `read_command` returns `Ok(None)` for Ping
+- Unit tests for `TimeoutConfig::with_ping_interval()` clamping behavior
+- Unit tests for `TimeoutConfig::validate()` error cases
+- Unit test `pingstate_set_should_stop_and_take_task_handle` for new `PingState` methods
 
 ### Fixed
 
@@ -51,3 +77,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Unreachable `command == 0` checks inside `while let Some(...)` loops in examples and test helpers
+- Test `pingstate_fields_are_private` (was ineffective — privacy enforced by compiler)
