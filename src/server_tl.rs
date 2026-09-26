@@ -56,10 +56,10 @@ impl<'a> ServerTL<'a> {
     }
 
     /// Read a command header from the client.
-    /// Returns `(command, data_size)` where `data_size` is the payload size in bytes.
-    /// For Ping command (command=0, data_size=0), sends a 1-byte OK response and returns Ok((0, 0)).
-    /// The caller should check for command == 0 and skip receive_data/send_data.
-    pub async fn read_command(&mut self) -> Result<(u32, usize)> {
+    /// Returns `Some((command, data_size))` for regular commands where `data_size` is the payload size.
+    /// For Ping command (command=0, data_size=0), sends a 1-byte OK response and returns `Ok(None)`.
+    /// The caller can use `if let Some((cmd, sz)) = server.read_command().await?` to handle regular commands.
+    pub async fn read_command(&mut self) -> Result<Option<(u32, usize)>> {
         self.buffer.resize(RequestHeader::encoded_len(), 0);
 
         match tokio::time::timeout(
@@ -87,7 +87,7 @@ impl<'a> ServerTL<'a> {
         if req_header.command == Command::Ping.into() && data_size == 0 {
             // Send 1-byte response: status=Ok(1), data_size=0 (default encoding)
             self.send_response_header(1, 0).await?;
-            return Ok((Command::Ping.into(), 0));
+            return Ok(None);
         }
 
         if data_size > self.max_buffer_size {
@@ -96,7 +96,7 @@ impl<'a> ServerTL<'a> {
             return Err("Data size exceeds maximum allowed buffer size".into());
         }
         self.send_response_header(1, 0).await?;
-        Ok((req_header.command, req_header.data_size as usize))
+        Ok(Some((req_header.command, req_header.data_size as usize)))
     }
 
     async fn send_response_header(&mut self, status: u8, data_size: u32) -> Result<()> {
@@ -207,5 +207,117 @@ impl<'a> ServerTL<'a> {
         self.writer.flush().await?;
         self.buffer.clear();
         Ok(())
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::request_header::RequestHeader;
+    use crate::response_header::ResponseHeader;
+    use crate::timeout_config::TimeoutConfig;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[tokio::test]
+    async fn server_tl_ping_no_payload() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let (reader, writer) = stream.split();
+            let mut server = ServerTL::new(reader, writer);
+            server.set_timeout_config(TimeoutConfig {
+                read_header: Duration::from_millis(500),
+                ..Default::default()
+            });
+
+            let result = server.read_command().await.unwrap();
+            assert!(result.is_none(), "Ping should return None");
+        });
+
+        // Send ping from client side
+        let mut client_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let request_header = RequestHeader::new(0, 0);
+        let mut buf = Vec::new();
+        request_header.encode(&mut buf).unwrap();
+        client_stream.write_all(&buf).await.unwrap();
+        client_stream.flush().await.unwrap();
+
+        // Read response (1 byte) - this is the request ACK from read_command
+        let mut response = [0u8; 1];
+        client_stream.read_exact(&mut response).await.unwrap();
+        assert_eq!(response[0], 1); // OK status
+
+        server_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn server_tl_regular_command() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let (reader, writer) = stream.split();
+            let mut server = ServerTL::new(reader, writer);
+            server.set_timeout_config(TimeoutConfig {
+                read_header: Duration::from_millis(500),
+                ..Default::default()
+            });
+
+            let result = server.read_command().await.unwrap();
+            assert!(result.is_some(), "Regular command should return Some");
+            let (cmd, sz) = result.unwrap();
+            assert_eq!(cmd, 42);
+            assert_eq!(sz, 5);
+
+            // Receive payload
+            let _data = server.receive_data(sz).await.unwrap();
+
+            // Send response
+            server.send_data(1, Some(b"OK")).await.unwrap();
+        });
+
+        // Send regular command from client side
+        let mut client_stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let request_header = RequestHeader::new(42, 5);
+        let mut buf = Vec::new();
+        request_header.encode(&mut buf).unwrap();
+        client_stream.write_all(&buf).await.unwrap();
+        client_stream.flush().await.unwrap();
+
+        // Read request ACK (1 byte) - sent by read_command
+        let mut request_ack = [0u8; 1];
+        client_stream.read_exact(&mut request_ack).await.unwrap();
+        assert_eq!(request_ack[0], 1); // OK status
+
+        // Send payload
+        client_stream.write_all(b"hello").await.unwrap();
+        client_stream.flush().await.unwrap();
+
+        // Read response header (5 bytes: status + data_size since data_size > 0)
+        let mut resp_header_buf = [0u8; 5];
+        client_stream.read_exact(&mut resp_header_buf).await.unwrap();
+        let mut slice = &resp_header_buf[..];
+        // is_default = false because data_size > 0
+        let resp_header = ResponseHeader::decode(&mut slice, false).unwrap();
+        assert_eq!(resp_header.status, 1); // OK status
+        assert_eq!(resp_header.data_size, 2);
+
+        // Send ACK for response header
+        let ack = ResponseHeader::new(1, 0);
+        let mut ack_buf = Vec::new();
+        ack.encode(&mut ack_buf, true).unwrap();
+        client_stream.write_all(&ack_buf).await.unwrap();
+        client_stream.flush().await.unwrap();
+
+        // Read response payload
+        let mut payload = vec![0u8; resp_header.data_size as usize];
+        client_stream.read_exact(&mut payload).await.unwrap();
+        assert_eq!(payload, b"OK");
+
+        server_handle.await.unwrap();
     }
 }

@@ -55,12 +55,11 @@ impl<'a> ServerTLS<'a> {
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) {
         self.timeout_config = timeout_config;
     }
-
     /// Read a command header from the client.
-    /// Returns `(command, data_size)` where `data_size` is the payload size in bytes.
-    /// For Ping command (command=0, data_size=0), sends a 1-byte OK response and returns Ok((0, 0)).
-    /// The caller should check for command == 0 and skip receive_data/send_data.
-    pub async fn read_command(&mut self) -> Result<(u32, usize)> {
+    /// Returns `Some((command, data_size))` for regular commands where `data_size` is the payload size.
+    /// For Ping command (command=0, data_size=0), sends a 1-byte OK response and returns `Ok(None)`.
+    /// The caller can use `if let Some((cmd, sz)) = server.read_command().await?` to handle regular commands.
+    pub async fn read_command(&mut self) -> Result<Option<(u32, usize)>> {
         self.buffer.resize(RequestHeader::encoded_len(), 0);
 
         match tokio::time::timeout(
@@ -88,7 +87,7 @@ impl<'a> ServerTLS<'a> {
         if req_header.command == Command::Ping.into() && data_size == 0 {
             // Send 1-byte response: status=Ok(1), data_size=0 (default encoding)
             self.send_response_header(1, 0).await?;
-            return Ok((Command::Ping.into(), 0));
+            return Ok(None);
         }
 
         if data_size > self.max_buffer_size {
@@ -97,7 +96,7 @@ impl<'a> ServerTLS<'a> {
             return Err("Data size exceeds maximum allowed buffer size".into());
         }
         self.send_response_header(1, 0).await?;
-        Ok((req_header.command, req_header.data_size as usize))
+        Ok(Some((req_header.command, req_header.data_size as usize)))
     }
 
     async fn send_response_header(&mut self, status: u8, data_size: u32) -> Result<()> {
@@ -232,9 +231,10 @@ mod tests {
 
         // Spawn server task
         let server_handle = tokio::spawn(async move {
-            let (command, data_size) = server.read_command().await.unwrap();
-            assert_eq!(command, 0);
-            assert_eq!(data_size, 0);
+            let result = server.read_command().await.unwrap();
+            assert!(result.is_none(), "Ping should return None");
+            
+            
         });
 
         // Send ping from client side

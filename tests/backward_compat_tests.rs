@@ -27,14 +27,9 @@ async fn backward_compat_old_client_new_server() {
 
             // Handle multiple requests without ping
             for _ in 0..3 {
-                let (command, data_size) = match server.read_command().await {
-                    Ok((cmd, sz)) => (cmd, sz),
-                    Err(_) => break,
+                let Some((_command, data_size)) = server.read_command().await.unwrap() else {
+                    continue; // Ping handled automatically by read_command
                 };
-
-                if command == 0 && data_size == 0 {
-                    continue; // Ping handled by read_command
-                }
 
                 if data_size > 0 {
                     let _ = server.receive_data(data_size).await;

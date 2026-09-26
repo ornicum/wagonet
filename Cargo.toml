@@ -1,6 +1,6 @@
 [package]
 name = "wagonet"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 description = "High-performance async TCP/TLS transport library with custom protocol"
 repository = "https://github.com/ornicum/wagonet"
@@ -22,7 +22,7 @@ tracing = "0.1.44"
 strum_macros = "0.28.0"
 rcgen = "0.14.9"
 socket2 = "0.6.5"
-thiserror = "2.0"
+thiserror = "2.0.21"
 async-trait = "0.1"
 
 [dev-dependencies]

@@ -556,22 +556,21 @@ mod tests {
                 });
 
                 loop {
-                    let (command, data_size) = match server.read_command().await {
-                        Ok((cmd, sz)) => (cmd, sz),
-                        Err(_) => break,
-                    };
-
-                    if command == 0 && data_size == 0 {
-                        if let Some(pc) = &ping_count {
-                            pc.fetch_add(1, Ordering::SeqCst);
+                    match server.read_command().await {
+                        Ok(Some((_command, data_size))) => {
+                            if data_size > 0 {
+                                let _ = server.receive_data(data_size).await;
+                            }
+                            let _ = server.send_data(1, Some(b"OK")).await;
                         }
-                        continue;
+                        Ok(None) => {
+                            // Ping handled by read_command (sent 1-byte OK response)
+                            if let Some(pc) = &ping_count {
+                                pc.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }
+                        Err(_) => break,
                     }
-
-                    if data_size > 0 {
-                        let _ = server.receive_data(data_size).await;
-                    }
-                    let _ = server.send_data(1, Some(b"OK")).await;
                 }
             }
         });

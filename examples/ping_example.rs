@@ -48,21 +48,7 @@ async fn main() -> wagonet::Result<()> {
             ..Default::default()
         });
 
-        loop {
-            eprintln!("[server] Waiting for command...");
-            let (command, data_size) = match server.read_command().await {
-                Ok((cmd, sz)) => (cmd, sz),
-                Err(e) => {
-                    eprintln!("[server] read_command error: {e}");
-                    break;
-                }
-            };
-
-            if command == 0 && data_size == 0 {
-                eprintln!("[server] Received PING, responded OK");
-                continue; // Ping handled by read_command, no payload
-            }
-
+        while let Some((command, data_size)) = server.read_command().await.unwrap() {
             eprintln!("[server] Got command={}, data_size={}", command, data_size);
 
             let mut data = Vec::new();

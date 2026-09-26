@@ -102,12 +102,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             loop {
                 match server.read_command().await {
-                    Ok((cmd, size)) => {
+                    Ok(Some((cmd, size))) => {
                         let data = server.receive_data(size).await?;
                         println!("Received cmd={}, size={}, data={:?}", cmd, size, data);
                         
                         // Echo back
                         server.send_data(0, Some(&data)).await?;
+                    }
+                    Ok(None) => {
+                        // Ping handled automatically, ACK already sent
+                        continue;
                     }
                     Err(e) => {
                         eprintln!("Error: {}", e);
@@ -116,8 +120,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         });
-    }
-}
 ```
 
 ## Configuration
@@ -206,9 +208,9 @@ impl<'a> ServerTL<'a> {
     pub fn new(reader: ReadHalf<'a>, writer: WriteHalf<'a>) -> Self
     pub fn set_max_buffer_size(&mut self, max_buffer_size: usize)
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig)
-    pub async fn read_command(&mut self) -> Result<(u32, usize), Box<dyn Error + Send + Sync>>
-    pub async fn receive_data(&mut self, buf_size: usize) -> Result<Vec<u8>, Box<dyn Error + Send + Sync>>
-    pub async fn send_data(&mut self, status: u8, buf: Option<&[u8]>) -> Result<(), Box<dyn Error + Send + Sync>>
+    pub async fn read_command(&mut self) -> Result<Option<(u32, usize)>>
+    pub async fn receive_data(&mut self, buf_size: usize) -> Result<Vec<u8>>
+    pub async fn send_data(&mut self, status: u8, buf: Option<&[u8]>) -> Result<()>
 }
 ```
 

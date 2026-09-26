@@ -44,7 +44,7 @@ async fn test_tcp_transport_success() {
             let (reader, writer) = stream.split();
             let mut server = ServerTL::new(reader, writer);
             eprintln!("[server] waiting for command");
-            let (command, data_size) = server.read_command().await.unwrap();
+            let Some((command, data_size)) = server.read_command().await.unwrap() else { panic!("Expected regular command, got ping"); };
             eprintln!("[server] got command={}, data_size={}", command, data_size);
             assert_eq!(command, 42);
             assert_eq!(data_size, 12);
@@ -106,7 +106,7 @@ async fn test_tcp_transport_no_answer() {
         spawn_server_with_shutdown(|mut stream| async move {
             let (reader, writer) = stream.split();
             let mut server = ServerTL::new(reader, writer);
-            let (_, data_size) = server.read_command().await.unwrap();
+            let Some((_, data_size)) = server.read_command().await.unwrap() else { panic!("Expected regular command, got ping"); };
             let received_data = server.receive_data(data_size).await.unwrap();
             assert_eq!(received_data, b"fire and forget");
 
@@ -139,7 +139,7 @@ async fn test_tls_transport_success() {
             let tls_stream = acceptor.accept(stream).await.unwrap();
             let mut server = ServerTLS::new(tls_stream);
 
-            let (command, data_size) = server.read_command().await.unwrap();
+            let Some((command, data_size)) = server.read_command().await.unwrap() else { panic!("Expected regular command, got ping"); };
             assert_eq!(command, 77);
 
             let received_data = server.receive_data(data_size).await.unwrap();
@@ -184,20 +184,20 @@ async fn keep_alive_cycle_true_false_true() {
             });
 
             loop {
-                let (command, data_size) = match server.read_command().await {
-                    Ok((cmd, sz)) => (cmd, sz),
+                match server.read_command().await {
+                    Ok(Some((_command, data_size))) => {
+                        if data_size > 0 {
+                            let _ = server.receive_data(data_size).await;
+                        }
+                        let _ = server.send_data(1, Some(b"OK")).await;
+                    }
+                    Ok(None) => {
+                        // Ping handled automatically by read_command
+                        ping_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        continue;
+                    }
                     Err(_) => break,
-                };
-
-                if command == 0 && data_size == 0 {
-                    ping_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    continue;
                 }
-
-                if data_size > 0 {
-                    let _ = server.receive_data(data_size).await;
-                }
-                let _ = server.send_data(1, Some(b"OK")).await;
             }
         }
     })

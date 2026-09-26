@@ -18,30 +18,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let (rd, wr) = stream.split();
         let mut server = ServerTL::new(rd, wr);
 
-        loop {
-            match server.read_command().await {
-                Ok((cmd, size)) => {
-                    println!("Received command: {}, data size: {}", cmd, size);
+        while let Some((cmd, size)) = server.read_command().await? {
+            println!("Received command: {}, data size: {}", cmd, size);
 
-                    let data = match server.receive_data(size).await {
-                        Ok(d) => d,
-                        Err(e) => {
-                            eprintln!("Receive error: {}", e);
-                            break;
-                        }
-                    };
-                    println!("Received data: {:?}", String::from_utf8_lossy(&data));
-
-                    let response = format!("Echo: {}", String::from_utf8_lossy(&data));
-                    if let Err(e) = server.send_data(0, Some(response.as_bytes())).await {
-                        eprintln!("Send error: {}", e);
-                        break;
-                    }
-                }
+            let data = match server.receive_data(size).await {
+                Ok(d) => d,
                 Err(e) => {
-                    eprintln!("Client disconnected or error: {}", e);
+                    eprintln!("Receive error: {}", e);
                     break;
                 }
+            };
+            println!("Received data: {:?}", String::from_utf8_lossy(&data));
+
+            let response = format!("Echo: {}", String::from_utf8_lossy(&data));
+            if let Err(e) = server.send_data(0, Some(response.as_bytes())).await {
+                eprintln!("Send error: {}", e);
+                break;
             }
         }
     }
