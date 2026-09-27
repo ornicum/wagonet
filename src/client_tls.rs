@@ -13,7 +13,7 @@ use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::ping::PingState;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
-use crate::timeout_config::TimeoutConfig;
+use crate::timeout_config::{TimeoutConfig, DEFAULT_MAX_CONNECT_RETRIES, DEFAULT_CONNECT_RETRY_DELAY};
 
 /// TLS client with connection reuse, ping keep-alive, certificate validation, and configurable timeouts.
 ///
@@ -178,7 +178,7 @@ impl ClientTLS {
         let connector = connector.build()?;
         let connector = TlsConnector::from(connector);
         let mut tries: u8 = 0;
-        while tries < 10 {
+        while tries < DEFAULT_MAX_CONNECT_RETRIES {
             match tokio::time::timeout(
                 self.timeout_config.connect,
                 TcpStream::connect(&self.address),
@@ -221,10 +221,10 @@ impl ClientTLS {
                     error!("Connection timeout");
                 }
             }
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(DEFAULT_CONNECT_RETRY_DELAY).await;
             tries += 1;
         }
-        if self.tls_stream.lock().await.is_none() && tries >= 10 {
+        if self.tls_stream.lock().await.is_none() && tries >= DEFAULT_MAX_CONNECT_RETRIES {
             error!("Connection error, max retries reached");
             return Err("Connection error, max retries reached".into());
         }

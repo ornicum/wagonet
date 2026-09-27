@@ -1,6 +1,32 @@
 use std::time::Duration;
 use crate::{Error, Result};
 
+/// Default timeout for establishing a connection.
+pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// Default timeout for reading response/request header.
+pub const DEFAULT_READ_HEADER_TIMEOUT: Duration = Duration::from_secs(60);
+/// Default timeout for reading response/request data payload.
+pub const DEFAULT_READ_DATA_TIMEOUT: Duration = Duration::from_secs(60);
+/// Default timeout for writing data.
+pub const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Default TCP keep-alive time (idle before first probe).
+pub const DEFAULT_KEEP_ALIVE_TIME: Duration = Duration::from_secs(30);
+/// Default TCP keep-alive interval (between probes).
+pub const DEFAULT_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
+/// Default interval for application-level ping keep-alive.
+pub const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(30);
+/// Default maximum data size for request/response payloads (10 MB).
+/// Default maximum connect retries.
+pub const DEFAULT_MAX_CONNECT_RETRIES: u8 = 10;
+/// Default delay between connect retries.
+pub const DEFAULT_CONNECT_RETRY_DELAY: Duration = Duration::from_secs(1);
+/// Subtraction for ping interval clamping (read_header - 1s).
+pub const PING_CLAMP_SUBTRACTION: Duration = Duration::from_secs(1);
+/// Threshold for halving read_header instead of subtracting.
+pub const PING_CLAMP_HALVE_THRESHOLD: Duration = Duration::from_millis(200);
+/// Divisor for halving read_header when threshold is met.
+pub const PING_CLAMP_HALVE_DIVISOR: u32 = 2;
+pub const DEFAULT_MAX_DATA_SIZE: usize = 10 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct TimeoutConfig {
     pub connect: Duration,
@@ -25,8 +51,8 @@ pub struct KeepAliveConfig {
 impl Default for KeepAliveConfig {
     fn default() -> Self {
         Self {
-            time: Duration::from_secs(30),
-            interval: Duration::from_secs(10),
+            time: DEFAULT_KEEP_ALIVE_TIME,
+            interval: DEFAULT_KEEP_ALIVE_INTERVAL,
         }
     }
 }
@@ -34,13 +60,13 @@ impl Default for KeepAliveConfig {
 impl Default for TimeoutConfig {
     fn default() -> Self {
         Self {
-            connect: Duration::from_secs(10),
-            read_header: Duration::from_secs(60),
-            read_data: Duration::from_secs(60),
-            write: Duration::from_secs(60),
+            connect: DEFAULT_CONNECT_TIMEOUT,
+            read_header: DEFAULT_READ_HEADER_TIMEOUT,
+            read_data: DEFAULT_READ_DATA_TIMEOUT,
+            write: DEFAULT_WRITE_TIMEOUT,
             keep_alive: None,
-            ping_interval: Duration::from_secs(30),
-            max_data_size: 10 * 1024 * 1024,
+            ping_interval: DEFAULT_PING_INTERVAL,
+            max_data_size: DEFAULT_MAX_DATA_SIZE,
         }
     }
 }
@@ -67,11 +93,11 @@ impl TimeoutConfig {
         // Clamp to maintain ping_interval < read_header
         if self.ping_interval >= self.read_header {
             if self.read_header > Duration::ZERO {
-                let clamped = self.read_header.saturating_sub(Duration::from_secs(1));
+                let clamped = self.read_header.saturating_sub(PING_CLAMP_SUBTRACTION);
                 self.ping_interval = if clamped == Duration::ZERO
-                    && self.read_header >= Duration::from_millis(200)
+                    && self.read_header >= PING_CLAMP_HALVE_THRESHOLD
                 {
-                    self.read_header / 2
+                    self.read_header / PING_CLAMP_HALVE_DIVISOR
                 } else {
                     clamped
                 };
@@ -84,7 +110,7 @@ impl TimeoutConfig {
     /// Set maximum data size for request/response payloads.
     /// Values <= 0 reset to default (10 MB).
     pub fn with_max_data_size(mut self, max_data_size: usize) -> Self {
-        self.max_data_size = if max_data_size > 0 { max_data_size } else { 10 * 1024 * 1024 };
+        self.max_data_size = if max_data_size > 0 { max_data_size } else { DEFAULT_MAX_DATA_SIZE };
         self
     }
 }

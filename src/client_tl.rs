@@ -11,7 +11,7 @@ use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::ping::PingState;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
-use crate::timeout_config::TimeoutConfig;
+use crate::timeout_config::{TimeoutConfig, DEFAULT_MAX_CONNECT_RETRIES, DEFAULT_CONNECT_RETRY_DELAY};
 use crate::{Error, Result};
 
 /// Plain TCP client with connection reuse, ping keep-alive, and configurable timeouts.
@@ -142,7 +142,7 @@ impl ClientTL {
     /// Called automatically by `handle_message` if not already connected.
     pub async fn connect(&mut self) -> Result<()> {
         let mut tries: u8 = 0;
-        while tries < 10 {
+        while tries < DEFAULT_MAX_CONNECT_RETRIES {
             match tokio::time::timeout(
                 self.timeout_config.connect,
                 TcpStream::connect(&self.address),
@@ -185,10 +185,10 @@ impl ClientTL {
                     error!("Connection timeout");
                 }
             }
-            sleep(Duration::from_secs(1)).await;
+            sleep(DEFAULT_CONNECT_RETRY_DELAY).await;
             tries += 1;
         }
-        if self.stream.lock().await.is_none() && tries >= 10 {
+        if self.stream.lock().await.is_none() && tries >= DEFAULT_MAX_CONNECT_RETRIES {
             error!("Connection error, max retries reached");
             return Err("Connection error, max retries reached".into());
         }

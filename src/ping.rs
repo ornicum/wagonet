@@ -1,5 +1,5 @@
 use crate::protocol_structs::Command;
-use crate::timeout_config::TimeoutConfig;
+use crate::timeout_config::{TimeoutConfig, DEFAULT_PING_INTERVAL};
 use crate::{Error, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -7,6 +7,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
+const PING_CHECK_DIVISOR: u32 = 4;
+const MIN_PING_CHECK_INTERVAL: Duration = Duration::from_millis(100);
+const PING_OLD_FORMAT_READ_TIMEOUT: Duration = Duration::from_millis(10);
 /// Trait for stream operations needed by the ping protocol.
 /// Both ClientTL and ClientTLS implement this (or adapt to it).
 #[async_trait::async_trait]
@@ -33,7 +36,7 @@ pub struct PingConfig {
 impl Default for PingConfig {
     fn default() -> Self {
         Self {
-            interval: Duration::from_secs(30),
+            interval: DEFAULT_PING_INTERVAL,
             enabled: true,
         }
     }
@@ -170,9 +173,9 @@ impl PingState {
             loop {
                 // Read interval dynamically each iteration
                 let interval = self_arc.interval().await;
-                let mut check_interval = interval / 4; // Check 4x per interval
-                if check_interval < Duration::from_millis(100) {
-                    check_interval = Duration::from_millis(100);
+                let mut check_interval = interval / PING_CHECK_DIVISOR;
+                if check_interval < MIN_PING_CHECK_INTERVAL {
+                    check_interval = MIN_PING_CHECK_INTERVAL;
                 }
                 sleep(check_interval).await;
 
@@ -301,7 +304,7 @@ where
     // We try to read 4 more bytes with a very short timeout (10ms).
     // If they arrive, it's an old server response; if timeout, it's a new server 1-byte response.
     let mut size_buf = [0u8; 4];
-    match tokio::time::timeout(Duration::from_millis(10), reader.read_exact(&mut size_buf)).await {
+    match tokio::time::timeout(PING_OLD_FORMAT_READ_TIMEOUT, reader.read_exact(&mut size_buf)).await {
         Ok(Ok(_)) => {
             // Got 4 more bytes - old server response
             let data_size = u32::from_be_bytes(size_buf);

@@ -117,8 +117,16 @@ pub mod server_tl;
 pub mod server_tls;
 pub mod timeout_config;
 
+pub use timeout_config::{
+    TimeoutConfig, KeepAliveConfig,
+    DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_HEADER_TIMEOUT, DEFAULT_READ_DATA_TIMEOUT,
+    DEFAULT_WRITE_TIMEOUT, DEFAULT_KEEP_ALIVE_TIME, DEFAULT_KEEP_ALIVE_INTERVAL,
+    DEFAULT_PING_INTERVAL, DEFAULT_MAX_DATA_SIZE,
+    DEFAULT_MAX_CONNECT_RETRIES, DEFAULT_CONNECT_RETRY_DELAY,
+    PING_CLAMP_SUBTRACTION, PING_CLAMP_HALVE_THRESHOLD, PING_CLAMP_HALVE_DIVISOR,
+};
+
 pub use client_tl::ClientTL;
 pub use client_tls::ClientTLS;
 pub use server_tl::ServerTL;
 pub use server_tls::ServerTLS;
-pub use timeout_config::TimeoutConfig;
