@@ -1,212 +1,216 @@
-# Roadmap to Open Source Publication
+# Roadmap to Open Source Publication (v1.0.0)
 
-## Current Status: 3/10 ready
+## Current Status: ~7/10 ready
 
----
-
-Working protocol with dynamic headers (1 byte for data_size=0, 5 bytes for data_size>0)
-Time limits on all operations (connect, read_header, read_data, write)
-TLS + plain TCP support
-Basic tests passing (6 tests)
-Async/await on tokio
-Symmetric client/server logic
-command_has_answer flag for no-answer mode
-TCP keep-alive support (socket2) with configurable idle/interval
-Connection reuse with bounded retry (1 retry) and health-aware reconnection
-Secure TLS defaults (accept_invalid_certs=false)
----
-
-## CRITICAL (Must Have Before Publishing)
-
-### Documentation
-
-- README.md with project description, features, installation, quick start, API overview, configuration
-- examples/ directory with simple_client.rs, simple_server.rs, tls_client.rs, tls_server.rs, no_answer_mode.rs
-- API documentation with /// doc comments on all public structs/methods
-- **Architecture documentation: docs/architecture.md** (component diagrams, state machines, sequence diagrams, security analysis)
-- LICENSE file (MIT or Apache-2.0)
-### Cargo.toml Metadata
-
-Add these fields to Cargo.toml:
-
-- description = "High-performance async TCP/TLS transport library with custom protocol"
-- repository = "https://github.com/yourusername/wagonet"
-- documentation = "https://docs.rs/wagonet"
-- homepage = "https://github.com/yourusername/wagonet"
-- license = "MIT OR Apache-2.0"
-- keywords = ["tcp", "tls", "async", "transport", "protocol"]
-- categories = ["network-programming", "asynchronous"]
-- readme = "README.md"
-- include = ["src/**/*", "examples/**/*", "LICENSE-*", "README.md"]
-
-### CI/CD Pipeline
-
-Create .github/workflows/ci.yml with:
-
-- Build on stable, beta, nightly Rust
-- Run tests
-- Run clippy
-- Run rustfmt check
-- Test coverage (optional)
-
-### Project Structure
-
-- .gitignore (target/, Cargo.lock for libs, etc.)
-- .editorconfig (consistent formatting)
-- CHANGELOG.md (version history)
-- CONTRIBUTING.md (how to contribute)
+**Текущие сильные стороны:**
+- ✅ Рабочий кастомный бинарный протокол (1 байт для empty payload, 5 байт для data)
+- ✅ Поддержка TCP и TLS (native-tls) с безопасными дефолтами (`accept_invalid_certs=false`)
+- ✅ 33+ passing tests, включая тесты ping-keep-alive и edge cases
+- ✅ Проведены и задокументированы **два независимых security-аудита** (критические фиксы OOM/DoS/deadlock применены)
+- ✅ Устранены магические числа (все таймауты и лимиты вынесены в именованные константы)
+- ✅ Устранено дублирование: лимит размера данных теперь единый (`max_buffer_size`), принцип наименьшего удивления соблюдён
+- ✅ Асинхронный ping-keep-alive без блокировки `Drop`
+- ✅ Транспорт агностичен к формату payload (protobuf, bincode, custom binary)
 
 ---
 
-## IMPORTANT (Quality & Best Practices)
+## 🚨 PHASE 1: CRITICAL (Must Have Before v1.0.0)
 
-### Error Handling
+### 1. High-Level API Architecture (Главная цель)
+Переход от "сырого транспорта" к фреймворку, где пользователь описывает только бизнес-логику.
 
-- Replace Box<dyn Error> with custom error types
-- Use thiserror crate for derive macros
-- Create TransportError enum with variants: Connection, Timeout, Protocol, Io, Tls
+**Архитектура `ProtocolCommandHandler`:**
+```rust
+/// Результат обработки команды хендлером
+pub enum CommandResult {
+    /// Успешный ответ с данными (status=0, payload)
+    Ok(Vec<u8>),
+    /// Команда без ответа (fire-and-forget, status игнорируется)
+    NoAnswer,
+    /// Ошибка с кодом статуса и опциональным сообщением
+    Error { status: u8, data: Option<Vec<u8>> },
+}
 
-### API Improvements
+/// Пользователь реализует этот трейт для обработки входящих команд.
+/// Формат payload (protobuf, bincode, raw bytes) определяется пользователем.
+#[async_trait::async_trait]
+pub trait ProtocolCommandHandler: Send + Sync + 'static {
+    async fn handle(&self, command: u32, data: &[u8]) -> CommandResult;
 
-- Replace &Vec<u8> with &[u8] in all signatures
-- Replace Vec<u8> returns with impl AsRef<[u8]> where possible
-- Add builder pattern for configuration
-- Make max_buffer_size configurable per-message
+    // Опциональные хуки
+    async fn on_connected(&self, _addr: std::net::SocketAddr) {}
+    async fn on_disconnected(&self, _addr: std::net::SocketAddr) {}
+}
+```
 
-### Logging
+**Архитектура `Server::run()`:**
+```rust
+pub struct Server<H: ProtocolCommandHandler> {
+    address: String,
+    handler: std::sync::Arc<H>,
+    timeout_config: TimeoutConfig,
+}
 
-- Replace all println! with tracing::warn! or tracing::info!
-- Add structured logging fields
-- Document log levels used
+impl<H: ProtocolCommandHandler> Server<H> {
+    pub fn new(address: String, handler: H) -> Self { /* ... */ }
+    pub fn set_timeout_config(&mut self, config: TimeoutConfig) { /* ... */ }
 
-### Testing
+    /// Основной цикл: accept -> spawn task -> read_command -> handler.handle -> send_data
+    pub async fn run(self) -> crate::Result<()> {
+        let listener = tokio::net::TcpListener::bind(&self.address).await?;
+        loop {
+            let (stream, addr) = listener.accept().await?;
+            let handler = self.handler.clone();
+            let config = self.timeout_config.clone();
 
-Edge case tests:
+            tokio::spawn(async move {
+                // 1. Инициализация ServerTL или ServerTLS
+                // 2. Цикл: loop { match server.read_command().await { Ok(Some(cmd, size)) => ... } }
+                // 3. Вызов: let result = handler.handle(cmd, &data).await;
+                // 4. Отправка: server.send_data(result.status, result.data).await;
+            });
+        }
+    }
+}
+```
 
-- Connection drop mid-message
-- Very large messages (100MB+)
-- Invalid/malformed bytes
-- Concurrent connections
-- Timeout scenarios
+### 2. Documentation & Community
+- [ ] **README.md**: Обновить Quick Start, показав *новый* высокоуровневый API.
+- [ ] **examples/**: Добавить `high_level_server.rs`, `high_level_client.rs`, `protobuf_example.rs`.
+- [ ] **docs/architecture.md**: Обновить диаграммы, добавив слой `ProtocolCommandHandler`.
+- [ ] **SECURITY.md**: Инструкция по приватному репорту уязвимостей.
+- [ ] **CONTRIBUTING.md** и **CODE_OF_CONDUCT.md**.
 
-Integration tests:
+### 3. CI/CD Pipeline (`.github/workflows/ci.yml`)
+- [ ] `cargo fmt --check`
+- [ ] `cargo clippy --all-targets -- -D warnings`
+- [ ] `cargo test --all`
+- [ ] `cargo audit` (проверка зависимостей)
 
-- Client-server roundtrip with various data sizes
-- TLS certificate validation
-- Reconnection scenarios
-
-Property-based tests (optional, using proptest):
-
-- Random message sizes
-- Random command IDs
-- Fuzz-like testing
-
----
-
-## NICE TO HAVE (Production-Ready Features)
-
-### Connection Management
-
-- Automatic reconnection with exponential backoff
-- Connection pooling (optional)
-- Health checks / heartbeat mechanism
-- Graceful shutdown support
-
-### Performance
-
-- Benchmarks using criterion (message throughput, latency percentiles, memory usage)
-- Zero-copy optimizations where possible
-- Buffer pooling for high-throughput scenarios
-
-### Security
-
-- Fuzzing tests using cargo-fuzz (protocol parsing, header decoding)
-- Rate limiting (optional)
-- Message size validation at protocol level
-
-### Extensibility
-
-Feature flags in Cargo.toml:
-
-- default = ["tls"]
-- tls = ["native-tls", "tokio-native-tls"]
-- compression = ["flate2"]
-
-Additional features:
-
-- Compression support (optional, via feature flag)
-- Custom serializers trait (beyond just bytes)
-
-### Observability
-
-- Metrics integration (optional): messages sent/received, connection duration, error rates
-- Tracing spans for request lifecycle
+### 4. Cargo.toml Metadata
+- [ ] `description`, `repository`, `license = "MIT OR Apache-2.0"`
+- [ ] `keywords = ["tcp", "tls", "async", "transport", "binary-protocol"]`
+- [ ] `categories = ["network-programming", "asynchronous"]`
 
 ---
 
-## SUGGESTED TIMELINE
+## ⚠️ PHASE 2: IMPORTANT (Quality & Reliability)
 
-### Week 1: "Showable to People"
+### 1. Testing & Fuzzing
+- [ ] **Integration tests**: Клиент-сервер roundtrip через новый `Server::run()` и `Client::connect()`.
+- [ ] **Edge cases**: Обрыв соединения посередине сообщения, конкатенация фреймов.
+- [ ] **Fuzzing**: Добавить `cargo-fuzz` таргет для `RequestHeader::decode` и `ResponseHeader::decode` (защита от регрессий OOM).
 
-Tasks:
+### 2. Error Handling & Logging
+- [ ] Убедиться, что все `Box<dyn Error>` заменены на типизированный `wagonet::Error` (через `thiserror`).
+- [ ] Заменить остаточные `println!` на `tracing::debug!` / `tracing::warn!`.
+- [ ] Добавить `tracing::Span` на время обработки одной команды в `Server::run()`.
 
-- README + examples + LICENSE
-- Cargo.toml metadata
-- CI pipeline
-- Basic thiserror migration
-- &[u8] fixes
+### 3. API Polish
+- [ ] Добавить `wagonet::prelude::*` для удобного импорта.
+- [ ] Реализовать `Client` с аналогичным высокоуровневым API (методы `call(command, data)` и `call_no_answer(command, data)`).
 
-Result: Library looks professional on crates.io
+### 4. Пример использования с protobuf (Prost)
+Добавить в документацию и examples/, показывающий что wagonet не навязывает формат сериализации:
 
-### Week 2: "Usable in Production"
+```rust
+use prost::Message;
+use wagonet::{ProtocolCommandHandler, CommandResult};
 
-Tasks:
+#[derive(Clone, PartialEq, Message)]
+pub struct GreetRequest {
+    #[prost(string, tag = "1")]
+    pub name: String,
+}
 
-- Edge case tests
-- Reconnection logic
-- Heartbeat mechanism
-- API documentation
-- Logging cleanup
+#[derive(Clone, PartialEq, Message)]
+pub struct GreetResponse {
+    #[prost(string, tag = "1")]
+    pub greeting: String,
+}
 
-Result: Library is reliable for real use
+struct MyHandler;
 
-### Week 3: "Something to Be Proud Of"
-
-Tasks:
-
-- Benchmarks
-- Fuzzing
-- Feature flags
-- Compression (optional)
-- Performance optimizations
-
-Result: Library competes with established alternatives
+#[async_trait::async_trait]
+impl ProtocolCommandHandler for MyHandler {
+    async fn handle(&self, command: u32, data: &[u8]) -> CommandResult {
+        match command {
+            1 => {
+                let req = match GreetRequest::decode(data) {
+                    Ok(r) => r,
+                    Err(_) => return CommandResult::Error { status: 1, data: None },
+                };
+                let resp = GreetResponse { greeting: format!("Hello, {}!", req.name) };
+                let mut buf = Vec::new();
+                resp.encode(&mut buf).unwrap();
+                CommandResult::Ok(buf)
+            }
+            _ => CommandResult::Error { status: 255, data: None },
+        }
+    }
+}
+```
 
 ---
 
-## PRIORITY ORDER
+## 🌟 PHASE 3: NICE TO HAVE (Production-Ready)
 
-1. README + examples (immediate impact)
-2. CI/CD (prevents regressions)
-3. Error types (better UX)
-4. Edge case tests (reliability)
-5. Reconnection (production necessity)
-6. Benchmarks (performance visibility)
-7. Everything else (nice-to-have polish)
+### 1. Performance
+- [ ] Добавить `benches/` с использованием `criterion` (throughput сообщений/сек, latency percentiles).
+- [ ] Оценить возможность buffer pooling (например, через `bytes::BytesMut`) для high-throughput сценариев.
 
----
+### 2. Extensibility
+- [ ] Feature flags в `Cargo.toml`: `default = ["tls"]`, `tls = ["native-tls", "tokio-native-tls"]`.
+- [ ] Поддержка сжатия (опционально, через feature flag `compression = ["flate2"]`).
 
-## NOTES
-
-- Current timeout values (600s) are too high for production - consider 60-120s
-- Consider semantic versioning strategy (0.x for breaking changes, 1.0 for stable API)
-- Plan for backward compatibility once 1.0 is released
+### 3. Observability
+- [ ] Хуки для метрик (количество обработанных команд, ошибки, время жизни соединения).
 
 ---
 
-## RESOURCES
+## 📅 SUGGESTED TIMELINE
 
-- Rust API Guidelines: https://rust-lang.github.io/api-guidelines/
-- crates.io publishing guide: https://doc.rust-lang.org/cargo/reference/publishing.html
-- Semantic Versioning: https://semver.org/
-- Good README examples: https://github.com/rust-lang/rust/blob/master/README.md
+### Неделя 1: "Архитектурный сдвиг"
+- Завершить рефакторинг `max_data_size` -> `max_buffer_size`.
+- Спроектировать и реализовать `ProtocolCommandHandler` и `Server::run()`.
+- Написать примеры `high_level_server.rs` и `protobuf_example.rs`.
+
+### Неделя 2: "Надёжность и Инфраструктура"
+- Настроить GitHub Actions CI (fmt, clippy, test, audit).
+- Написать интеграционные тесты для нового API.
+- Добавить `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`.
+
+### Неделя 3: "Полировка и Релиз"
+- Обновить README и документацию (`cargo doc`).
+- Добавить бенчмарки (`criterion`).
+- Прогнать финальный fuzzing.
+- **Релиз v1.0.0** на crates.io.
+
+---
+
+## 🎯 PRIORITY ORDER
+
+1. **High-Level API** (`ProtocolCommandHandler` + `Server::run()`) — *это главная ценность проекта*.
+2. **CI/CD Pipeline** — *гарантия того, что рефакторинг ничего не сломал*.
+3. **Документация и Примеры** — *пользователь должен понять, как это использовать, за 2 минуты*.
+4. **Fuzzing и Edge-case тесты** — *подтверждение заявленной безопасности*.
+5. **Бенчмарки и Feature Flags** — *конкурентное преимущество*.
+
+---
+
+## 📝 NOTES
+
+- **Semantic Versioning**: Текущая версия `0.x`. Любые изменения в сигнатуре `ProtocolCommandHandler` до `1.0.0` допустимы, но после `1.0.0` потребуют мажорного релиза.
+- **Ниша проекта**: wagonet — это транспортный слой, заменяющий HTTP/2 из gRPC. Он работает с любым форматом payload (protobuf через Prost, bincode, custom binary), давая полный контроль над транспортом без overhead HTTP/2. Пользователь сам решает, как сериализовать данные, а wagonet обеспечивает надёжную доставку с настраиваемыми таймаутами, keep-alive и безопасностью.
+- **Не замена protobuf**: wagonet не конкурирует с protobuf/gRPC на уровне сериализации. Он заменяет транспорт (HTTP/2 -> TCP/TLS), а формат payload остаётся на усмотрение пользователя.
+- **Security First**: Наличие файлов `AUDIT_*.md` в репозитории — это мощное маркетинговое преимущество. Не удалять их.
+
+---
+
+## 🔗 RESOURCES
+
+- [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/)
+- [crates.io publishing guide](https://doc.rust-lang.org/cargo/reference/publishing.html)
+- [Semantic Versioning](https://semver.org/)
+- [Prost (protobuf for Rust)](https://github.com/tokio-rs/prost)
+- [cargo-fuzz book](https://rust-fuzz.github.io/book/)
