@@ -312,13 +312,14 @@ impl ClientTLS {
         stream: &mut TlsStream<TcpStream>,
         is_default: bool,
         command_has_answer: bool,
-        timeout_config: &TimeoutConfig,
+        read_header_timeout: Duration,
+        max_buffer_size: usize,
         buffer: &mut Vec<u8>,
     ) -> Result<ResponseHeader, Box<dyn std::error::Error + Send + Sync>> {
         let result_buf_size = ResponseHeader::encoded_len(is_default, command_has_answer);
         buffer.resize(result_buf_size, 0);
 
-        match tokio::time::timeout(timeout_config.read_header, stream.read_exact(buffer)).await {
+        match tokio::time::timeout(read_header_timeout, stream.read_exact(buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
                 error!("Receiving request header error: {e}");
@@ -331,7 +332,7 @@ impl ClientTLS {
         }
 
         let decode_as_default = is_default || !command_has_answer;
-        let response_header = ResponseHeader::decode(&mut buffer.as_slice(), decode_as_default, timeout_config.max_data_size)?;
+        let response_header = ResponseHeader::decode(&mut buffer.as_slice(), decode_as_default, max_buffer_size)?;
         buffer.clear();
         Ok(response_header)
     }
@@ -342,6 +343,7 @@ impl ClientTLS {
         data: &[u8],
         timeout_config: &TimeoutConfig,
         command_has_answer: bool,
+        max_buffer_size: usize,
         buffer: &mut Vec<u8>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Self::send_request_header_locked(
@@ -356,7 +358,8 @@ impl ClientTLS {
             stream,
             true,
             command_has_answer,
-            timeout_config,
+            timeout_config.read_header,
+            max_buffer_size,
             buffer,
         )
         .await?;
@@ -390,7 +393,8 @@ impl ClientTLS {
                 stream,
                 false,
                 command_has_answer,
-                timeout_config,
+                timeout_config.read_header,
+                max_buffer_size,
                 buffer,
             )
             .await?;
@@ -457,6 +461,7 @@ impl ClientTLS {
                 request_data,
                 &self.timeout_config,
                 self.command_has_answer,
+                self.max_buffer_size,
                 &mut self.buffer,
             )
             .await?;

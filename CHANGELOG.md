@@ -9,11 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security Fixes
 
-- **OOM via unbounded data_size (CRITICAL)**: Added `max_data_size` field to `TimeoutConfig` (default 10 MB). Both `RequestHeader::decode` and `ResponseHeader::decode` now validate `data_size` against this limit before any allocation, returning `Error::BufferOverflow` if exceeded. This prevents DoS via malicious oversized payloads.
+- **OOM via unbounded data_size (CRITICAL)**: `RequestHeader::decode` and `ResponseHeader::decode` now validate `data_size` against the connection's `max_buffer_size` (configurable via `set_max_buffer_size`) before any allocation, returning `Error::BufferOverflow` if exceeded. This prevents DoS via malicious oversized payloads. The separate `max_data_size` field was removed to avoid confusing duplication with `max_buffer_size`.
 
 - **Ping old-format DoS (HIGH)**: Server now rejects Ping commands (command=0) with `data_size != 0` with `Error::Protocol("Ping must have data_size=0")`. Previously, a malicious ping response with large `data_size` could force the client to read/discard up to 4 GiB of data.
 
 - **Non-blocking Drop (HIGH)**: `PingState::stop_ping_task()` is now synchronous (was `async fn` with 5s timeout wait). `Drop` implementations for `ClientTL` and `ClientTLS` no longer block - they only set the stop flag and abort the task handle. This eliminates potential deadlock when dropping clients in async contexts.
+
+### Refactoring
+
+- **Removed `max_data_size` from `TimeoutConfig`**: The duplicate `max_data_size` field (which duplicated `max_buffer_size` semantics) has been removed. Data size limits now use the connection's `max_buffer_size` exclusively, configurable via `set_max_buffer_size()`. This eliminates confusion where users could increase buffer size but data would still be rejected at 10 MB.
 
 ### Breaking Changes
 

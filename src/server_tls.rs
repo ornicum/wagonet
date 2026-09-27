@@ -155,7 +155,7 @@ impl<'a> ServerTLS<'a> {
             }
         }
 
-        let res_header = ResponseHeader::decode(&mut self.buffer.as_slice(), is_default, self.timeout_config.max_data_size)?;
+        let res_header = ResponseHeader::decode(&mut self.buffer.as_slice(), is_default, self.max_buffer_size)?;
         self.buffer.clear();
         Ok(res_header)
     }

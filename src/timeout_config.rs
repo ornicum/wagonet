@@ -15,7 +15,6 @@ pub const DEFAULT_KEEP_ALIVE_TIME: Duration = Duration::from_secs(30);
 pub const DEFAULT_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 /// Default interval for application-level ping keep-alive.
 pub const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(30);
-/// Default maximum data size for request/response payloads (10 MB).
 /// Default maximum connect retries.
 pub const DEFAULT_MAX_CONNECT_RETRIES: u8 = 10;
 /// Default delay between connect retries.
@@ -26,7 +25,6 @@ pub const PING_CLAMP_SUBTRACTION: Duration = Duration::from_secs(1);
 pub const PING_CLAMP_HALVE_THRESHOLD: Duration = Duration::from_millis(200);
 /// Divisor for halving read_header when threshold is met.
 pub const PING_CLAMP_HALVE_DIVISOR: u32 = 2;
-pub const DEFAULT_MAX_DATA_SIZE: usize = 10 * 1024 * 1024;
 #[derive(Debug, Clone)]
 pub struct TimeoutConfig {
     pub connect: Duration,
@@ -37,9 +35,6 @@ pub struct TimeoutConfig {
     /// Interval for sending ping requests to keep the connection alive.
     /// Default: 30 seconds. Must be less than read_header to be effective.
     pub ping_interval: Duration,
-    /// Maximum allowed data size in bytes for request/response payloads.
-    /// Default: 10 MB. Protects against OOM from malicious oversized payloads.
-    pub max_data_size: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -66,7 +61,6 @@ impl Default for TimeoutConfig {
             write: DEFAULT_WRITE_TIMEOUT,
             keep_alive: None,
             ping_interval: DEFAULT_PING_INTERVAL,
-            max_data_size: DEFAULT_MAX_DATA_SIZE,
         }
     }
 }
@@ -105,12 +99,6 @@ impl TimeoutConfig {
                 self.ping_interval = Duration::ZERO;
             }
         }
-        self
-    }
-    /// Set maximum data size for request/response payloads.
-    /// Values <= 0 reset to default (10 MB).
-    pub fn with_max_data_size(mut self, max_data_size: usize) -> Self {
-        self.max_data_size = if max_data_size > 0 { max_data_size } else { DEFAULT_MAX_DATA_SIZE };
         self
     }
 }
