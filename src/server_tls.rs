@@ -3,8 +3,8 @@ use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::error;
 
-use crate::Result;
 use crate::Error;
+use crate::Result;
 use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
@@ -155,7 +155,11 @@ impl<'a> ServerTLS<'a> {
             }
         }
 
-        let res_header = ResponseHeader::decode(&mut self.buffer.as_slice(), is_default, self.max_buffer_size)?;
+        let res_header = ResponseHeader::decode(
+            &mut self.buffer.as_slice(),
+            is_default,
+            self.max_buffer_size,
+        )?;
         self.buffer.clear();
         Ok(res_header)
     }
@@ -240,8 +244,6 @@ mod tests {
         let server_handle = tokio::spawn(async move {
             let result = server.read_command().await.unwrap();
             assert!(result.is_none(), "Ping should return None");
-            
-            
         });
 
         // Send ping from client side
@@ -261,8 +263,8 @@ mod tests {
 
     #[tokio::test]
     async fn server_tls_ping_invalid_data_size() {
-        use crate::request_header::RequestHeader;
         use crate::protocol_structs::Command;
+        use crate::request_header::RequestHeader;
         use crate::timeout_config::TimeoutConfig;
         use std::time::Duration;
         use tokio::io::duplex;

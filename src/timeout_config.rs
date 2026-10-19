@@ -1,5 +1,5 @@
-use std::time::Duration;
 use crate::{Error, Result};
+use std::time::Duration;
 
 /// Default timeout for establishing a connection.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -111,9 +111,8 @@ mod tests {
     #[test]
     fn with_ping_interval_clamps_when_interval_ge_read_header() {
         // Test that ping_interval is clamped when >= read_header
-        let config = TimeoutConfig::default()
-            .with_ping_interval(Duration::from_secs(60)); // read_header default is 60s
-        
+        let config = TimeoutConfig::default().with_ping_interval(Duration::from_secs(60)); // read_header default is 60s
+
         // Should be clamped to read_header - 1s = 59s
         assert_eq!(config.ping_interval, Duration::from_secs(59));
     }
@@ -124,8 +123,9 @@ mod tests {
         let config = TimeoutConfig {
             read_header: Duration::from_millis(500),
             ..Default::default()
-        }.with_ping_interval(Duration::from_secs(10)); // 10s > 500ms
-        
+        }
+        .with_ping_interval(Duration::from_secs(10)); // 10s > 500ms
+
         // Should be clamped to 500ms / 2 = 250ms
         assert_eq!(config.ping_interval, Duration::from_millis(250));
     }
@@ -133,9 +133,8 @@ mod tests {
     #[test]
     fn with_ping_interval_does_not_change_when_valid() {
         // Test that valid ping_interval is not changed
-        let config = TimeoutConfig::default()
-            .with_ping_interval(Duration::from_secs(30)); // 30s < 60s
-        
+        let config = TimeoutConfig::default().with_ping_interval(Duration::from_secs(30)); // 30s < 60s
+
         assert_eq!(config.ping_interval, Duration::from_secs(30));
     }
 
@@ -155,7 +154,7 @@ mod tests {
         };
         let result = config.validate();
         assert!(result.is_err());
-        
+
         // Check error message
         let err = result.unwrap_err();
         let err_str = err.to_string();

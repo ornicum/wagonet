@@ -13,7 +13,9 @@ use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::ping::PingState;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
-use crate::timeout_config::{TimeoutConfig, DEFAULT_MAX_CONNECT_RETRIES, DEFAULT_CONNECT_RETRY_DELAY};
+use crate::timeout_config::{
+    DEFAULT_CONNECT_RETRY_DELAY, DEFAULT_MAX_CONNECT_RETRIES, TimeoutConfig,
+};
 
 /// TLS client with connection reuse, ping keep-alive, certificate validation, and configurable timeouts.
 ///
@@ -154,7 +156,9 @@ impl ClientTLS {
     /// Set timeout configuration (connect, read_header, read_data, write, keep_alive, ping_interval).
     pub async fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) -> Result<()> {
         // Use builder to automatically clamp ping_interval
-        let config = timeout_config.clone().with_ping_interval(timeout_config.ping_interval);
+        let config = timeout_config
+            .clone()
+            .with_ping_interval(timeout_config.ping_interval);
         config.validate()?;
         let ping_enabled = self.keep_alive && config.ping_interval > Duration::ZERO;
         let config_arc = self.ping_state.config();
@@ -167,7 +171,6 @@ impl ClientTLS {
         self.timeout_config = config;
         Ok(())
     }
-
 
     /// Explicitly establish a TLS connection with retry logic.
     /// Retries up to 10 times with 1s delay between attempts.
@@ -332,7 +335,8 @@ impl ClientTLS {
         }
 
         let decode_as_default = is_default || !command_has_answer;
-        let response_header = ResponseHeader::decode(&mut buffer.as_slice(), decode_as_default, max_buffer_size)?;
+        let response_header =
+            ResponseHeader::decode(&mut buffer.as_slice(), decode_as_default, max_buffer_size)?;
         buffer.clear();
         Ok(response_header)
     }
