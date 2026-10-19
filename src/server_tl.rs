@@ -3,8 +3,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tracing::error;
 
-use crate::Result;
 use crate::Error;
+use crate::Result;
 use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
@@ -155,7 +155,11 @@ impl<'a> ServerTL<'a> {
             }
         }
 
-        let res_header = ResponseHeader::decode(&mut self.buffer.as_slice(), is_default, self.max_buffer_size)?;
+        let res_header = ResponseHeader::decode(
+            &mut self.buffer.as_slice(),
+            is_default,
+            self.max_buffer_size,
+        )?;
         self.buffer.clear();
         Ok(res_header)
     }
@@ -306,7 +310,10 @@ mod tests {
 
         // Read response header (5 bytes: status + data_size since data_size > 0)
         let mut resp_header_buf = [0u8; 5];
-        client_stream.read_exact(&mut resp_header_buf).await.unwrap();
+        client_stream
+            .read_exact(&mut resp_header_buf)
+            .await
+            .unwrap();
         let mut slice = &resp_header_buf[..];
         // is_default = false because data_size > 0
         let resp_header = ResponseHeader::decode(&mut slice, false, 1024).unwrap();
@@ -330,8 +337,8 @@ mod tests {
 
     #[tokio::test]
     async fn server_tl_ping_invalid_data_size() {
-        use crate::request_header::RequestHeader;
         use crate::protocol_structs::Command;
+        use crate::request_header::RequestHeader;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpListener;
 

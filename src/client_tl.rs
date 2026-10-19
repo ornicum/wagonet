@@ -11,7 +11,9 @@ use crate::common::DEFAULT_MAX_BUFFER_SIZE;
 use crate::ping::PingState;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
-use crate::timeout_config::{TimeoutConfig, DEFAULT_MAX_CONNECT_RETRIES, DEFAULT_CONNECT_RETRY_DELAY};
+use crate::timeout_config::{
+    DEFAULT_CONNECT_RETRY_DELAY, DEFAULT_MAX_CONNECT_RETRIES, TimeoutConfig,
+};
 use crate::{Error, Result};
 
 /// Plain TCP client with connection reuse, ping keep-alive, and configurable timeouts.
@@ -123,7 +125,9 @@ impl ClientTL {
     }
     /// Set timeout configuration (connect, read_header, read_data, write, keep_alive, ping_interval).
     pub async fn set_timeout_config(&mut self, timeout_config: TimeoutConfig) -> Result<()> {
-        let config = timeout_config.clone().with_ping_interval(timeout_config.ping_interval);
+        let config = timeout_config
+            .clone()
+            .with_ping_interval(timeout_config.ping_interval);
         config.validate()?;
         let ping_enabled = self.keep_alive && config.ping_interval > Duration::ZERO;
         let config_arc = self.ping_state.config();
@@ -297,7 +301,8 @@ impl ClientTL {
         }
 
         let decode_as_default = is_default || !command_has_answer;
-        let response_header = ResponseHeader::decode(&mut buffer.as_slice(), decode_as_default, max_buffer_size)?;
+        let response_header =
+            ResponseHeader::decode(&mut buffer.as_slice(), decode_as_default, max_buffer_size)?;
         buffer.clear();
         Ok(response_header)
     }
@@ -688,11 +693,15 @@ mod tests {
         use std::time::Instant;
         let mut client = ClientTL::new("127.0.0.1:9999".to_string()); // Non-existent server
         client.set_keep_alive(true);
-        
+
         // Drop should complete quickly (< 100ms) without blocking
         let start = Instant::now();
         drop(client);
         let elapsed = start.elapsed();
-        assert!(elapsed < Duration::from_millis(100), "Drop took too long: {:?}", elapsed);
+        assert!(
+            elapsed < Duration::from_millis(100),
+            "Drop took too long: {:?}",
+            elapsed
+        );
     }
 }

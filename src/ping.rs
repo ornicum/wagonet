@@ -1,5 +1,5 @@
 use crate::protocol_structs::Command;
-use crate::timeout_config::{TimeoutConfig, DEFAULT_PING_INTERVAL};
+use crate::timeout_config::{DEFAULT_PING_INTERVAL, TimeoutConfig};
 use crate::{Error, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -304,7 +304,12 @@ where
     // We try to read 4 more bytes with a very short timeout (10ms).
     // If they arrive, it's an old server response; if timeout, it's a new server 1-byte response.
     let mut size_buf = [0u8; 4];
-    match tokio::time::timeout(PING_OLD_FORMAT_READ_TIMEOUT, reader.read_exact(&mut size_buf)).await {
+    match tokio::time::timeout(
+        PING_OLD_FORMAT_READ_TIMEOUT,
+        reader.read_exact(&mut size_buf),
+    )
+    .await
+    {
         Ok(Ok(_)) => {
             // Got 4 more bytes - old server response
             let data_size = u32::from_be_bytes(size_buf);
@@ -326,10 +331,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::{PingConfig, PingState};
     use crate::protocol_structs::Command;
     use crate::request_header::RequestHeader;
     use crate::timeout_config::TimeoutConfig;
-    use super::{PingState, PingConfig};
 
     #[test]
     fn ping_header_codec() {
@@ -349,14 +354,14 @@ mod tests {
     #[tokio::test]
     async fn pingstate_set_should_stop_and_take_task_handle() {
         let ping_state = PingState::new(PingConfig::default(), TimeoutConfig::default());
-        
+
         // Test set_should_stop
         ping_state.set_should_stop(true).await;
         assert!(*ping_state.should_stop().lock().await);
-        
+
         ping_state.set_should_stop(false).await;
         assert!(!*ping_state.should_stop().lock().await);
-        
+
         // Test take_task_handle (should return None initially)
         let handle = ping_state.take_task_handle().await;
         assert!(handle.is_none());

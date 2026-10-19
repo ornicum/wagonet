@@ -106,24 +106,26 @@ impl From<String> for Error {
 /// Result type alias for wagonet operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+mod client;
 pub mod client_tl;
 pub mod client_tls;
 mod common;
 pub mod ping;
+pub mod protocol_command_handler;
+mod protocol_handler;
 pub mod protocol_structs;
 mod request_header;
 mod response_header;
+pub mod server;
 pub mod server_tl;
 pub mod server_tls;
 pub mod timeout_config;
 
 pub use timeout_config::{
-    TimeoutConfig, KeepAliveConfig,
-    DEFAULT_CONNECT_TIMEOUT, DEFAULT_READ_HEADER_TIMEOUT, DEFAULT_READ_DATA_TIMEOUT,
-    DEFAULT_WRITE_TIMEOUT, DEFAULT_KEEP_ALIVE_TIME, DEFAULT_KEEP_ALIVE_INTERVAL,
-    DEFAULT_PING_INTERVAL,
-    DEFAULT_MAX_CONNECT_RETRIES, DEFAULT_CONNECT_RETRY_DELAY,
-    PING_CLAMP_SUBTRACTION, PING_CLAMP_HALVE_THRESHOLD, PING_CLAMP_HALVE_DIVISOR,
+    DEFAULT_CONNECT_RETRY_DELAY, DEFAULT_CONNECT_TIMEOUT, DEFAULT_KEEP_ALIVE_INTERVAL,
+    DEFAULT_KEEP_ALIVE_TIME, DEFAULT_MAX_CONNECT_RETRIES, DEFAULT_PING_INTERVAL,
+    DEFAULT_READ_DATA_TIMEOUT, DEFAULT_READ_HEADER_TIMEOUT, DEFAULT_WRITE_TIMEOUT, KeepAliveConfig,
+    PING_CLAMP_HALVE_DIVISOR, PING_CLAMP_HALVE_THRESHOLD, PING_CLAMP_SUBTRACTION, TimeoutConfig,
 };
 
 pub use client_tl::ClientTL;
