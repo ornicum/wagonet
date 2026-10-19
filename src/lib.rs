@@ -106,13 +106,17 @@ impl From<String> for Error {
 /// Result type alias for wagonet operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
+mod client;
 pub mod client_tl;
 pub mod client_tls;
 mod common;
 pub mod ping;
+pub mod protocol_command_handler;
+mod protocol_handler;
 pub mod protocol_structs;
 mod request_header;
 mod response_header;
+pub mod server;
 pub mod server_tl;
 pub mod server_tls;
 pub mod timeout_config;
