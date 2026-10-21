@@ -64,7 +64,9 @@ impl Server {
 
         while let Ok((stream, peer)) = self.listener.as_ref().unwrap().accept().await {
             let mut client = Client::new(stream, peer, self.max_buffer_size);
-            if self.is_tls && let Some(tls_acceptor) = &self.tls_acceptor {
+            if self.is_tls
+                && let Some(tls_acceptor) = &self.tls_acceptor
+            {
                 client.set_tls_acceptor(Arc::clone(tls_acceptor));
             }
             let protocol_command_handler =
