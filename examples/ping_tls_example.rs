@@ -56,8 +56,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_handle = tokio::spawn(async move {
         server_ready_clone.notify_one();
 
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let tls_stream = tls_acceptor_clone.accept(&mut stream).await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let tls_stream = tls_acceptor_clone.accept(stream).await.unwrap();
         connection_count_clone.fetch_add(1, Ordering::SeqCst);
         eprintln!(
             "[server] New TLS connection accepted (total: {})",

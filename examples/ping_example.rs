@@ -32,14 +32,14 @@ async fn main() -> wagonet::Result<()> {
     let server_handle = tokio::spawn(async move {
         server_ready_clone.notify_one();
 
-        let (mut stream, _) = listener.accept().await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
         connection_count_clone.fetch_add(1, Ordering::SeqCst);
         eprintln!(
             "[server] New connection accepted (total: {})",
             connection_count_clone.load(Ordering::SeqCst)
         );
 
-        let (reader, writer) = stream.split();
+        let (reader, writer) = stream.into_split();
         let mut server = ServerTL::new(reader, writer);
 
         // Short read_header timeout to demonstrate ping effectiveness

@@ -108,7 +108,7 @@ impl<H: ProtocolCommandHandler> Server<H> {
 
 ### 3. API Polish
 - [ ] Добавить `wagonet::prelude::*` для удобного импорта.
-- [ ] Реализовать `Client` с аналогичным высокоуровневым API (методы `call(command, data)` и `call_no_answer(command, data)`).
+- [ ] Реализовать `ConnectionHandler` с аналогичным высокоуровневым API (методы `call(command, data)` и `call_no_answer(command, data)`).
 
 ### 4. Пример использования с protobuf (Prost)
 Добавить в документацию и examples/, показывающий что wagonet не навязывает формат сериализации:
