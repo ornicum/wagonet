@@ -12,10 +12,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Server listening on 127.0.0.1:8080");
 
     loop {
-        let (mut stream, addr) = listener.accept().await?;
+        let (stream, addr) = listener.accept().await?;
         println!("Client connected: {}", addr);
 
-        let (rd, wr) = stream.split();
+        let (rd, wr) = stream.into_split();
         let mut server = ServerTL::new(rd, wr);
 
         while let Some((cmd, size)) = server.read_command().await? {

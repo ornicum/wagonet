@@ -16,11 +16,11 @@ async fn backward_compat_old_client_new_server() -> Result<(), Box<dyn Error + S
     let connection_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let connection_count_clone = connection_count.clone();
 
-    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(move |mut stream| {
+    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(move |stream| {
         let connection_count = connection_count_clone.clone();
         async move {
             connection_count.fetch_add(1, Ordering::SeqCst);
-            let (reader, writer) = stream.split();
+            let (reader, writer) = stream.into_split();
             let mut server = ServerTL::new(reader, writer);
             server.set_timeout_config(TimeoutConfig {
                 read_header: Duration::from_secs(10),

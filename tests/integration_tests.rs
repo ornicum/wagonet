@@ -40,32 +40,31 @@ fn create_test_tls_acceptor() -> TlsAcceptor {
 
 #[tokio::test]
 async fn test_tcp_transport_success() {
-    let (server_handle, server_shutdown, addr) =
-        spawn_server_with_shutdown(|mut stream| async move {
-            let (reader, writer) = stream.split();
-            let mut server = ServerTL::new(reader, writer);
-            eprintln!("[server] waiting for command");
-            let Some((command, data_size)) = server.read_command().await.unwrap() else {
-                panic!("Expected regular command, got ping");
-            };
-            eprintln!("[server] got command={}, data_size={}", command, data_size);
-            assert_eq!(command, 42);
-            assert_eq!(data_size, 12);
+    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(|stream| async move {
+        let (reader, writer) = stream.into_split();
+        let mut server = ServerTL::new(reader, writer);
+        eprintln!("[server] waiting for command");
+        let Some((command, data_size)) = server.read_command().await.unwrap() else {
+            panic!("Expected regular command, got ping");
+        };
+        eprintln!("[server] got command={}, data_size={}", command, data_size);
+        assert_eq!(command, 42);
+        assert_eq!(data_size, 12);
 
-            eprintln!("[server] waiting for data");
-            let received_data = server.receive_data(data_size).await.unwrap();
-            eprintln!("[server] got data: {:?}", received_data);
-            assert_eq!(received_data, b"hello server");
+        eprintln!("[server] waiting for data");
+        let received_data = server.receive_data(data_size).await.unwrap();
+        eprintln!("[server] got data: {:?}", received_data);
+        assert_eq!(received_data, b"hello server");
 
-            let response_body = b"hello client";
-            eprintln!("[server] sending response");
-            server
-                .send_data(ResponseStatus::Ok.into(), Some(response_body))
-                .await
-                .unwrap();
-            eprintln!("[server] response sent");
-        })
-        .await;
+        let response_body = b"hello client";
+        eprintln!("[server] sending response");
+        server
+            .send_data(ResponseStatus::Ok.into(), Some(response_body))
+            .await
+            .unwrap();
+        eprintln!("[server] response sent");
+    })
+    .await;
 
     let mut client = ClientTL::new(addr.to_string());
     let request_payload = b"hello server";
@@ -81,16 +80,15 @@ async fn test_tcp_transport_success() {
 
 #[tokio::test]
 async fn test_tcp_transport_buffer_overflow() {
-    let (server_handle, server_shutdown, addr) =
-        spawn_server_with_shutdown(|mut stream| async move {
-            let (reader, writer) = stream.split();
-            let mut server = ServerTL::new(reader, writer);
-            server.set_max_buffer_size(5);
+    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(|stream| async move {
+        let (reader, writer) = stream.into_split();
+        let mut server = ServerTL::new(reader, writer);
+        server.set_max_buffer_size(5);
 
-            let res = server.read_command().await;
-            assert!(res.is_err());
-        })
-        .await;
+        let res = server.read_command().await;
+        assert!(res.is_err());
+    })
+    .await;
 
     let mut client = ClientTL::new(addr.to_string());
     let large_payload = b"this payload is too long for server";
@@ -105,22 +103,21 @@ async fn test_tcp_transport_buffer_overflow() {
 
 #[tokio::test]
 async fn test_tcp_transport_no_answer() {
-    let (server_handle, server_shutdown, addr) =
-        spawn_server_with_shutdown(|mut stream| async move {
-            let (reader, writer) = stream.split();
-            let mut server = ServerTL::new(reader, writer);
-            let Some((_, data_size)) = server.read_command().await.unwrap() else {
-                panic!("Expected regular command, got ping");
-            };
-            let received_data = server.receive_data(data_size).await.unwrap();
-            assert_eq!(received_data, b"fire and forget");
+    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(|stream| async move {
+        let (reader, writer) = stream.into_split();
+        let mut server = ServerTL::new(reader, writer);
+        let Some((_, data_size)) = server.read_command().await.unwrap() else {
+            panic!("Expected regular command, got ping");
+        };
+        let received_data = server.receive_data(data_size).await.unwrap();
+        assert_eq!(received_data, b"fire and forget");
 
-            server
-                .send_data(ResponseStatus::Ok.into(), None)
-                .await
-                .unwrap();
-        })
-        .await;
+        server
+            .send_data(ResponseStatus::Ok.into(), None)
+            .await
+            .unwrap();
+    })
+    .await;
 
     let mut client = ClientTL::new(addr.to_string());
     let payload = b"fire and forget";
@@ -180,10 +177,10 @@ async fn keep_alive_cycle_true_false_true() -> Result<(), Box<dyn Error + Send +
     let ping_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let ping_count_clone = ping_count.clone();
 
-    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(move |mut stream| {
+    let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(move |stream| {
         let ping_count = ping_count_clone.clone();
         async move {
-            let (reader, writer) = stream.split();
+            let (reader, writer) = stream.into_split();
             let mut server = ServerTL::new(reader, writer);
             server.set_timeout_config(wagonet::TimeoutConfig {
                 read_header: Duration::from_millis(500),
