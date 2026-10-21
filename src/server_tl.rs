@@ -1,6 +1,7 @@
 use crate::protocol_structs::Command;
+use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::tcp::{ReadHalf, WriteHalf};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tracing::error;
 
 use crate::Error;
@@ -19,18 +20,18 @@ use crate::timeout_config::TimeoutConfig;
 /// Created per-connection from a split `TcpStream` (reader/writer halves).
 /// Does not manage the connection lifecycle - the caller handles `accept()` and spawning.
 #[derive(Debug)]
-pub struct ServerTL<'a> {
-    reader: ReadHalf<'a>,
-    writer: WriteHalf<'a>,
+pub struct ServerTL {
+    reader: OwnedReadHalf,
+    writer: OwnedWriteHalf,
     buffer: Vec<u8>,
     max_buffer_size: usize,
     timeout_config: TimeoutConfig,
 }
 
-impl<'a> ServerTL<'a> {
+impl ServerTL {
     /// Create a new server handler from split stream halves.
     /// The caller is responsible for accepting the connection and splitting the stream.
-    pub fn new(reader: ReadHalf<'a>, writer: WriteHalf<'a>) -> Self {
+    pub fn new(reader: OwnedReadHalf, writer: OwnedWriteHalf) -> Self {
         Self {
             reader,
             writer,
@@ -236,8 +237,8 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         let server_handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let (reader, writer) = stream.split();
+            let (stream, _) = listener.accept().await.unwrap();
+            let (reader, writer) = stream.into_split();
             let mut server = ServerTL::new(reader, writer);
             server.set_timeout_config(TimeoutConfig {
                 read_header: Duration::from_millis(500),
@@ -270,8 +271,8 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         let server_handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let (reader, writer) = stream.split();
+            let (stream, _) = listener.accept().await.unwrap();
+            let (reader, writer) = stream.into_split();
             let mut server = ServerTL::new(reader, writer);
             server.set_timeout_config(TimeoutConfig {
                 read_header: Duration::from_millis(500),
@@ -346,8 +347,8 @@ mod tests {
         let addr = listener.local_addr().unwrap();
 
         let server_handle = tokio::spawn(async move {
-            let (mut stream, _) = listener.accept().await.unwrap();
-            let (reader, writer) = stream.split();
+            let (stream, _) = listener.accept().await.unwrap();
+            let (reader, writer) = stream.into_split();
             let mut server = ServerTL::new(reader, writer);
             server.set_timeout_config(TimeoutConfig {
                 read_header: Duration::from_millis(500),
@@ -379,5 +380,26 @@ mod tests {
         assert_eq!(response[0], 7); // InvalidDataSize status
 
         server_handle.await.unwrap();
+    }
+}
+
+#[async_trait]
+impl<'a> crate::transport::Transport for ServerTL {
+    async fn read_command(&mut self) -> crate::Result<Option<(u32, u32)>> {
+        self.read_command()
+            .await
+            .map(|opt| opt.map(|(cmd, sz)| (cmd, sz as u32)))
+    }
+
+    async fn receive_data(&mut self, size: u32) -> crate::Result<Vec<u8>> {
+        self.receive_data(size as usize).await
+    }
+
+    async fn send_response(&mut self, status: u8, data: Option<&[u8]>) -> crate::Result<()> {
+        self.send_data(status, data).await
+    }
+
+    async fn shutdown(&mut self) -> crate::Result<()> {
+        self.writer.flush().await.map_err(|e| e.into())
     }
 }

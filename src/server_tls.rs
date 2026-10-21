@@ -1,4 +1,5 @@
 use crate::protocol_structs::Command;
+use async_trait::async_trait;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::error;
@@ -305,5 +306,26 @@ mod tests {
         assert_eq!(response[0], 7); // InvalidDataSize status
 
         server_handle.await.unwrap();
+    }
+}
+
+#[async_trait]
+impl<'a> crate::transport::Transport for ServerTLS<'a> {
+    async fn read_command(&mut self) -> crate::Result<Option<(u32, u32)>> {
+        self.read_command()
+            .await
+            .map(|opt| opt.map(|(cmd, sz)| (cmd, sz as u32)))
+    }
+
+    async fn receive_data(&mut self, size: u32) -> crate::Result<Vec<u8>> {
+        self.receive_data(size as usize).await
+    }
+
+    async fn send_response(&mut self, status: u8, data: Option<&[u8]>) -> crate::Result<()> {
+        self.send_data(status, data).await
+    }
+
+    async fn shutdown(&mut self) -> crate::Result<()> {
+        self.tls_stream.flush().await.map_err(|e| e.into())
     }
 }
