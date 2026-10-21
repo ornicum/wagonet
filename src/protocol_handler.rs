@@ -119,6 +119,9 @@ impl<'a> ProtocolHandler<'a> {
             panic!("Server is not configured.");
         }
         let (command, command_data) = self.get_command_info().await?;
+        if command == WagonetCommand::Ping.into() {
+            return Ok(())
+        }
         match self.command_handler.run(command, command_data).await {
             Ok((status, data)) => {
                 if self.server_tl.is_some()
