@@ -530,12 +530,12 @@ mod tests {
     ) {
         tokio::spawn(async move {
             loop {
-                let (mut stream, _) = listener.accept().await.unwrap();
+                let (stream, _) = listener.accept().await.unwrap();
                 if let Some(counter) = &connection_count {
                     counter.fetch_add(1, Ordering::SeqCst);
                 }
 
-                let (reader, writer) = stream.split();
+                let (reader, writer) = stream.into_split();
                 let mut server = ServerTL::new(reader, writer);
                 server.set_timeout_config(TimeoutConfig {
                     read_header: Duration::from_secs(10),
