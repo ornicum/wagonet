@@ -1,7 +1,9 @@
 #[cfg(test)]
 #[path = "common.rs"]
 mod common;
+
 use common::spawn_server_with_shutdown;
+use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -10,7 +12,7 @@ use wagonet::{ClientTL, TimeoutConfig, server_tl::ServerTL};
 /// Test backward compatibility: Old client (no ping) vs New server (with ping support)
 /// The old client doesn't send pings, but the new server should handle regular requests normally
 #[tokio::test]
-async fn backward_compat_old_client_new_server() {
+async fn backward_compat_old_client_new_server() -> Result<(), Box<dyn Error + Send + Sync>> {
     let connection_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let connection_count_clone = connection_count.clone();
 
@@ -48,11 +50,11 @@ async fn backward_compat_old_client_new_server() {
             read_header: Duration::from_secs(10),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     // Send 3 requests without ping
     for i in 1..=3 {
-        let response = client.handle_message(i, b"data").await.unwrap();
+        let response = client.handle_message(i, b"data").await?;
         assert_eq!(response, b"OK");
     }
 
@@ -60,9 +62,10 @@ async fn backward_compat_old_client_new_server() {
     let final_count = connection_count.load(Ordering::SeqCst);
     assert_eq!(final_count, 1);
 
-    client.disconnect().await.unwrap();
+    client.disconnect().await?;
     server_shutdown.notify_one();
-    server_handle.await.unwrap();
+    server_handle.await?;
+    Ok(())
 }
 
 /// Test backward compatibility: New client (with ping) vs Old server (without ping support)

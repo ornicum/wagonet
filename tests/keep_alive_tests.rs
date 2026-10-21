@@ -4,6 +4,7 @@
 #[path = "common.rs"]
 mod common;
 use common::spawn_server_with_shutdown;
+use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -151,7 +152,7 @@ async fn test_keep_alive_reuses_connection() {
 /// re-invoke `try_send_receive` after a read failure, which caused duplicate
 /// non-idempotent requests on the server side.
 #[tokio::test]
-async fn test_keep_alive_no_duplicate_on_failure() {
+async fn test_keep_alive_no_duplicate_on_failure() -> Result<(), Box<dyn Error + Send + Sync>> {
     let connection_count = Arc::new(AtomicUsize::new(0));
     let (_server_handle, server_shutdown, addr) =
         spawn_mock_server(Some(connection_count.clone()), true).await;
@@ -163,7 +164,7 @@ async fn test_keep_alive_no_duplicate_on_failure() {
             read_header: Duration::from_millis(500),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     // First call fails because the server drops the connection.
     let res1 = client.handle_message(1, b"test").await;
@@ -185,12 +186,13 @@ async fn test_keep_alive_no_duplicate_on_failure() {
     );
 
     server_shutdown.notify_one();
+    Ok(())
 }
 
 /// Test 3: Verify that after a failed request the client correctly clears its
 /// internal stream state and is able to establish a fresh connection on the next call.
 #[tokio::test]
-async fn test_keep_alive_recovers_on_next_call() {
+async fn test_keep_alive_recovers_on_next_call() -> Result<(), Box<dyn Error + Send + Sync>> {
     let connection_count = Arc::new(AtomicUsize::new(0));
     let (_server_handle, server_shutdown, addr) =
         spawn_mock_server(Some(connection_count.clone()), true).await;
@@ -202,7 +204,7 @@ async fn test_keep_alive_recovers_on_next_call() {
             read_header: Duration::from_millis(500),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     // First call fails because the server drops the connection.
     let res1 = client.handle_message(1, b"test").await;
@@ -224,4 +226,5 @@ async fn test_keep_alive_recovers_on_next_call() {
     );
 
     server_shutdown.notify_one();
+    Ok(())
 }

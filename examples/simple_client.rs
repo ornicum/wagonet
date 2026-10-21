@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     // Connect (optional - handle_message will auto-connect)
     client.connect().await?;

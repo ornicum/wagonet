@@ -502,6 +502,7 @@ mod tests {
     use crate::request_header::RequestHeader;
     use crate::server_tl::ServerTL;
     use crate::timeout_config::TimeoutConfig;
+    use std::assert_matches;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -563,9 +564,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn server_tl_ping_no_payload() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
+    async fn server_tl_ping_no_payload() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
         let ping_count = Arc::new(AtomicUsize::new(0));
         let ping_count_clone = ping_count.clone();
 
@@ -578,35 +579,36 @@ mod tests {
                 ping_interval: Duration::from_millis(100),
                 ..Default::default()
             })
-            .await;
+            .await?;
 
         // Connect and manually send ping
-        client.connect().await.unwrap();
+        client.connect().await?;
 
         let mut stream_guard = client.stream.lock().await;
         let stream = stream_guard.as_mut().unwrap();
 
         let request_header = RequestHeader::new(0, 0);
         let mut buf = Vec::new();
-        request_header.encode(&mut buf).unwrap();
-        stream.write_all(&buf).await.unwrap();
-        stream.flush().await.unwrap();
+        request_header.encode(&mut buf)?;
+        stream.write_all(&buf).await?;
+        stream.flush().await?;
 
         // Read ping response (1 byte)
         let mut response = [0u8; 1];
-        stream.read_exact(&mut response).await.unwrap();
+        stream.read_exact(&mut response).await?;
         assert_eq!(response[0], 1); // OK status
 
         drop(stream_guard);
-        client.disconnect().await.unwrap();
+        client.disconnect().await?;
 
         assert_eq!(ping_count.load(Ordering::SeqCst), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn client_ping_timer() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
+    async fn client_ping_timer() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
         let ping_count = Arc::new(AtomicUsize::new(0));
         let ping_count_clone = ping_count.clone();
 
@@ -619,24 +621,25 @@ mod tests {
                 ping_interval: Duration::from_millis(100),
                 ..Default::default()
             })
-            .await;
+            .await?;
 
         // Connect and wait for pings
-        client.connect().await.unwrap();
+        client.connect().await?;
 
         // Wait for ~350ms, should get at least 3 pings
         tokio::time::sleep(Duration::from_millis(350)).await;
 
-        client.disconnect().await.unwrap();
+        client.disconnect().await?;
 
         let count = ping_count.load(Ordering::SeqCst);
         assert!(count >= 3, "Expected at least 3 pings, got {}", count);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn client_ping_not_sent_when_active() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
+    async fn client_ping_not_sent_when_active() -> Result<()> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let addr = listener.local_addr()?;
         let ping_count = Arc::new(AtomicUsize::new(0));
         let ping_count_clone = ping_count.clone();
 
@@ -649,15 +652,15 @@ mod tests {
                 ping_interval: Duration::from_millis(200),
                 ..Default::default()
             })
-            .await;
+            .await?;
 
         // Send requests every 50ms for 500ms - should be 10 requests
         for i in 1..11 {
-            client.handle_message(i, b"data").await.unwrap();
+            client.handle_message(i, b"data").await?;
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
 
-        client.disconnect().await.unwrap();
+        client.disconnect().await?;
 
         // During active requests, no pings should be sent
         let count = ping_count.load(Ordering::SeqCst);
@@ -666,6 +669,7 @@ mod tests {
             "Expected no pings during active requests, got {}",
             count
         );
+        Ok(())
     }
 
     #[test]
@@ -676,8 +680,8 @@ mod tests {
             ..Default::default()
         };
 
-        // This should log a warning but not panic
-        config.validate();
+        let result = config.validate();
+        assert_matches!(result, Err(Error::Config(_)));
 
         // Test valid config
         let config = TimeoutConfig {
@@ -685,14 +689,15 @@ mod tests {
             ping_interval: Duration::from_secs(30),
             ..Default::default()
         };
-        config.validate(); // Should not log warning
+        let result = config.validate(); // Should not log warning
+        assert_matches!(result, Ok(_));
     }
 
-    #[test]
-    fn client_tl_drop_is_fast() {
+    #[tokio::test]
+    async fn client_tl_drop_is_fast() {
         use std::time::Instant;
         let mut client = ClientTL::new("127.0.0.1:9999".to_string()); // Non-existent server
-        client.set_keep_alive(true);
+        client.set_keep_alive(true).await;
 
         // Drop should complete quickly (< 100ms) without blocking
         let start = Instant::now();

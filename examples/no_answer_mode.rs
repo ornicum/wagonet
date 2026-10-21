@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     client.connect().await?;
     println!("Connected in no-answer mode!");

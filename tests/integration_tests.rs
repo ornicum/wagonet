@@ -3,6 +3,7 @@
 mod common;
 use common::{spawn_server_with_shutdown, spawn_tls_server_with_shutdown};
 use native_tls::{Identity, TlsAcceptor as NativeTlsAcceptor};
+use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_native_tls::TlsAcceptor;
@@ -175,7 +176,7 @@ async fn test_tls_transport_success() {
 /// - keep_alive(false): stops ping task, closes connection
 /// - keep_alive(true) + handle_message(): reconnects, starts new ping task
 #[tokio::test]
-async fn keep_alive_cycle_true_false_true() {
+async fn keep_alive_cycle_true_false_true() -> Result<(), Box<dyn Error + Send + Sync>> {
     let ping_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let ping_count_clone = ping_count.clone();
 
@@ -217,10 +218,10 @@ async fn keep_alive_cycle_true_false_true() {
             ping_interval: Duration::from_millis(200),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     // Send one request to establish connection
-    let _ = client.handle_message(1, b"hello").await.unwrap();
+    let _ = client.handle_message(1, b"hello").await?;
 
     // Phase 1: true - wait for pings
     tokio::time::sleep(Duration::from_millis(600)).await;
@@ -243,7 +244,7 @@ async fn keep_alive_cycle_true_false_true() {
     // Phase 3: true again - pings should resume
     client.set_keep_alive(true).await;
     // Need to send a message to restart ping task (connect starts it)
-    let _ = client.handle_message(2, b"restart").await.unwrap();
+    let _ = client.handle_message(2, b"restart").await?;
 
     // Wait longer for connection establishment and first ping
     tokio::time::sleep(Duration::from_millis(800)).await;
@@ -258,7 +259,8 @@ async fn keep_alive_cycle_true_false_true() {
         pings_phase3
     );
 
-    client.disconnect().await.unwrap();
+    client.disconnect().await?;
     server_shutdown.notify_one();
-    server_handle.await.unwrap();
+    server_handle.await?;
+    Ok(())
 }

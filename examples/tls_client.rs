@@ -3,13 +3,14 @@
 //! Run with: `cargo run --example tls_client`
 //! Connects to a TLS server (see tls_server.rs)
 //
+use std::error::Error;
 use wagonet::{
     ClientTLS,
     timeout_config::{KeepAliveConfig, TimeoutConfig},
 };
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     // For production: use real hostname with valid certificate
     let mut client = ClientTLS::new("127.0.0.1:8443".to_string());
 
@@ -29,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     println!("Connecting with TLS...");
     client.connect().await?;
