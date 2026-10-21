@@ -106,10 +106,10 @@ impl From<String> for Error {
 /// Result type alias for wagonet operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
-mod client;
 pub mod client_tl;
 pub mod client_tls;
 mod common;
+mod connection_handler;
 pub mod ping;
 pub mod protocol_command_handler;
 mod protocol_handler;
@@ -120,6 +120,7 @@ pub mod server;
 pub mod server_tl;
 pub mod server_tls;
 pub mod timeout_config;
+pub mod transport;
 
 pub use timeout_config::{
     DEFAULT_CONNECT_RETRY_DELAY, DEFAULT_CONNECT_TIMEOUT, DEFAULT_KEEP_ALIVE_INTERVAL,
