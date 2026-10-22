@@ -1,4 +1,3 @@
-use crate::protocol_structs::Command;
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -7,6 +6,7 @@ use tracing::error;
 use crate::Error;
 use crate::Result;
 use crate::common::DEFAULT_MAX_BUFFER_SIZE;
+use crate::protocol_structs::Command;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
 use crate::timeout_config::TimeoutConfig;
@@ -384,7 +384,7 @@ mod tests {
 }
 
 #[async_trait]
-impl<'a> crate::transport::Transport for ServerTL {
+impl crate::transport::Transport for ServerTL {
     async fn read_command(&mut self) -> crate::Result<Option<(u32, u32)>> {
         self.read_command()
             .await

@@ -1,8 +1,9 @@
+use tracing::error;
+
+use crate::Result;
 use crate::protocol_command_handler::ProtocolCommandHandler;
 use crate::protocol_structs::ResponseStatus;
 use crate::transport::Transport;
-use crate::{Error, Result};
-use tracing::error;
 
 pub struct ProtocolHandler {
     transport: Box<dyn Transport>,
@@ -54,7 +55,7 @@ impl ProtocolHandler {
                 {
                     error!("Error sending error response: {}", send_err);
                 }
-                return Err(Error::Other(e));
+                return Err(e);
             }
         }
 

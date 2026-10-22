@@ -1,11 +1,12 @@
-use crate::protocol_structs::Command;
-use crate::timeout_config::{DEFAULT_PING_INTERVAL, TimeoutConfig};
-use crate::{Error, Result};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
+
+use crate::protocol_structs::Command;
+use crate::timeout_config::{DEFAULT_PING_INTERVAL, TimeoutConfig};
+use crate::{Error, Result};
 
 const PING_CHECK_DIVISOR: u32 = 4;
 const MIN_PING_CHECK_INTERVAL: Duration = Duration::from_millis(100);

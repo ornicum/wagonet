@@ -1,5 +1,6 @@
-use crate::{Error, Result};
 use std::time::Duration;
+
+use crate::{Error, Result};
 
 /// Default timeout for establishing a connection.
 pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);

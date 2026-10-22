@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -45,8 +44,8 @@ impl<'a> ConnectionHandler<'a> {
     pub async fn run(
         &mut self,
         command_handler: Box<dyn ProtocolCommandHandler>,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let stream = self.stream.take().ok_or("stream already consumed")?;
+    ) -> crate::Result<()> {
+        let stream = self.stream.take().ok_or(crate::Error::NotConnected)?;
 
         let transport: Box<dyn Transport> = if let Some(tls_acceptor) = &self.tls_acceptor {
             match tls_acceptor.accept(stream).await {
@@ -57,7 +56,7 @@ impl<'a> ConnectionHandler<'a> {
                 }
                 Err(e) => {
                     error!("Error on accepting TLS connection: {}", e);
-                    return Err(e.into());
+                    return Err(crate::Error::Tls(e));
                 }
             }
         } else {

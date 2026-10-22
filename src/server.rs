@@ -57,10 +57,9 @@ impl Server {
         let _ = self.shutdown_tx.send(true);
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> Result<(), Box<dyn Error>> {
         if self.protocol_command_handler_factory.is_none() {
-            error!("Protocol Command Handler is not set.");
-            panic!("Protocol Command Handler is not set.")
+            return Err("Protocol Command Handler is not set.".into());
         }
         match TcpListener::bind(&self.address).await {
             Ok(listener) => {
@@ -69,7 +68,7 @@ impl Server {
             }
             Err(e) => {
                 error!("Error binding to {}: {}", self.address, e);
-                return;
+                return Err(Box::new(e));
             }
         }
 
@@ -101,7 +100,9 @@ impl Server {
                     let protocol_command_handler =
                         self.protocol_command_handler_factory.as_ref().unwrap()();
                     tokio::spawn(async move {
-                        let _ = client.run(protocol_command_handler).await;
+                        if let Err(e) = client.run(protocol_command_handler).await {
+                            error!("Connection handler failed for {}: {}", peer, e);
+                        }
                     });
                 }
                 Err(e) => {
@@ -109,5 +110,6 @@ impl Server {
                 }
             }
         }
+        Ok(())
     }
 }

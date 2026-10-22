@@ -1,4 +1,3 @@
-use crate::protocol_structs::Command;
 use async_trait::async_trait;
 use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -7,6 +6,7 @@ use tracing::error;
 use crate::Error;
 use crate::Result;
 use crate::common::DEFAULT_MAX_BUFFER_SIZE;
+use crate::protocol_structs::Command;
 use crate::request_header::RequestHeader;
 use crate::response_header::ResponseHeader;
 use crate::timeout_config::TimeoutConfig;
