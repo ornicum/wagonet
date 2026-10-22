@@ -15,15 +15,15 @@ include = ["src/**/*", "examples/**/*", "LICENSE-MIT", "LICENSE-APACHE", "README
 [workspace]
 
 [dependencies]
-tokio = { version = "1.53.1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }
+tokio = { version = "1.54.1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }
 native-tls = "0.2.18"
 tokio-native-tls = "0.3.1"
 tracing = "0.1.44"
 strum_macros = "0.28.0"
-rcgen = "0.14.9"
+rcgen = "0.14.10"
 socket2 = "0.6.5"
 thiserror = "2.0.21"
-async-trait = "0.1"
+async-trait = "0.1.92"
 
 [dev-dependencies]
-tracing-subscriber = "0.3"
+tracing-subscriber = "0.3.23"
