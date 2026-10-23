@@ -103,6 +103,12 @@ impl From<String> for Error {
         Error::Msg(s)
     }
 }
+
+impl From<tokio::time::error::Elapsed> for Error {
+    fn from(_: tokio::time::error::Elapsed) -> Self {
+        Error::Timeout("operation timed out".to_string())
+    }
+}
 /// Result type alias for wagonet operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -133,3 +139,8 @@ pub use client_tl::ClientTL;
 pub use client_tls::ClientTLS;
 pub use server_tl::ServerTL;
 pub use server_tls::ServerTLS;
+
+// High-level server framework
+pub use protocol_command_handler::ProtocolCommandHandler;
+pub use protocol_structs::ResponseStatus;
+pub use server::Server;

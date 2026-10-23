@@ -1,16 +1,20 @@
-use tracing::error;
-
 use crate::Result;
 use crate::protocol_command_handler::ProtocolCommandHandler;
 use crate::protocol_structs::ResponseStatus;
 use crate::transport::Transport;
+use tracing::error;
 
+/// Drives the request-response protocol over an established [`Transport`].
+///
+/// Owns a transport (TCP or TLS connection behind the [`Transport`] trait)
+/// and a user-provided [`ProtocolCommandHandler`] with application logic.
 pub struct ProtocolHandler {
     transport: Box<dyn Transport>,
     command_handler: Box<dyn ProtocolCommandHandler>,
 }
 
 impl ProtocolHandler {
+    /// Create a handler from a transport and a command handler.
     pub fn new(
         transport: Box<dyn Transport>,
         command_handler: Box<dyn ProtocolCommandHandler>,
@@ -21,10 +25,19 @@ impl ProtocolHandler {
         }
     }
 
+    /// Process a single request-response cycle.
+    ///
+    /// Returns:
+    /// - `Ok(true)` when the connection should stay open (keep-alive). This
+    ///   also covers transport-level pings (handled internally) and command
+    ///   handler errors (the client receives an `Error` status, the session
+    ///   continues).
+    /// - `Ok(false)` when the command handler returned
+    ///   [`ResponseStatus::Finish`]: the session is complete.
+    /// - `Err(e)` on transport-level failures; the connection is unusable.
     pub async fn handle_next(&mut self) -> Result<bool> {
-        let command_info = self.transport.read_command().await?;
-
-        let (command, data_size) = match command_info {
+        // `None` means the transport handled a keep-alive ping internally.
+        let (command, data_size) = match self.transport.read_command().await? {
             Some(info) => info,
             None => return Ok(true),
         };
@@ -48,14 +61,16 @@ impl ProtocolHandler {
             }
             Err(e) => {
                 error!("Command handler error: {}", e);
+                // Send an empty payload instead of `None` so that clients in
+                // answer mode receive a full 5-byte header and stay in sync.
                 if let Err(send_err) = self
                     .transport
-                    .send_response(ResponseStatus::Error.into(), None)
+                    .send_response(ResponseStatus::Error.into(), Some(&[]))
                     .await
                 {
                     error!("Error sending error response: {}", send_err);
                 }
-                return Err(e);
+                // Application errors do not terminate the connection.
             }
         }
 
