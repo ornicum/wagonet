@@ -358,7 +358,7 @@ impl ClientTLS {
             buffer,
         )
         .await?;
-        Self::receive_response_header_locked(
+        let ack_header = Self::receive_response_header_locked(
             stream,
             true,
             command_has_answer,
@@ -367,6 +367,11 @@ impl ClientTLS {
             buffer,
         )
         .await?;
+        // The server rejected the request (protocol violation, oversized
+        // payload). Sending the payload anyway would desynchronize the exchange.
+        if ack_header.status != 1 {
+            return Err(format!("Request rejected by server: status {}", ack_header.status).into());
+        }
 
         match tokio::time::timeout(timeout_config.write, stream.write_all(data)).await {
             Ok(Ok(_)) => {}
@@ -392,7 +397,7 @@ impl ClientTLS {
         max_buffer_size: usize,
         buffer: &mut Vec<u8>,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        let data_size = {
+        let (status, data_size) = {
             let res_header = Self::receive_response_header_locked(
                 stream,
                 false,
@@ -402,19 +407,20 @@ impl ClientTLS {
                 buffer,
             )
             .await?;
-            let status = res_header.status;
-            if status != 1 {
-                return Err(format!("Response status is not Ok: {status}").into());
-            }
-            let data_usize = res_header.data_size as usize;
-            if data_usize > max_buffer_size {
-                return Err("Data size is more then max buffer size".into());
-            }
-            data_usize
+            (res_header.status, res_header.data_size as usize)
         };
 
-        // Send ACK for response header
+        // Send the ACK before validating the status: the server waits for this
+        // ACK unconditionally, so skipping it on error paths would deadlock it.
         Self::send_response_header_locked(stream, 1, 0, timeout_config.write, buffer).await?;
+
+        if status != 1 {
+            return Err(format!("Response status is not Ok: {status}").into());
+        }
+
+        if data_size > max_buffer_size {
+            return Err("Data size is more then max buffer size".into());
+        }
 
         if data_size == 0 {
             buffer.clear();

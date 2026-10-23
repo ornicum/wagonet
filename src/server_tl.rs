@@ -90,25 +90,29 @@ impl ServerTL {
         // Ping must have data_size=0, otherwise it's a protocol violation.
         if req_header.command == Command::Ping.into() {
             if data_size != 0 {
-                self.send_response_header(7, 0).await?;
+                self.send_response_header(7, 0, true).await?;
                 return Err(Error::Protocol("Ping must have data_size=0".into()));
             }
             // Send 1-byte response: status=Ok(1), data_size=0 (default encoding)
-            self.send_response_header(1, 0).await?;
+            self.send_response_header(1, 0, true).await?;
             return Ok(None);
         }
 
         if data_size > self.max_buffer_size {
-            self.send_response_header(7, 0).await?;
+            self.send_response_header(7, 0, true).await?;
             error!("Request rejected: data size {data_size} exceeds MAX_BUFFER_SIZE");
             return Err("Data size exceeds maximum allowed buffer size".into());
         }
-        self.send_response_header(1, 0).await?;
+        self.send_response_header(1, 0, true).await?;
         Ok(Some((req_header.command, req_header.data_size as usize)))
     }
 
-    async fn send_response_header(&mut self, status: u8, data_size: u32) -> Result<()> {
-        let is_default = data_size == 0;
+    async fn send_response_header(
+        &mut self,
+        status: u8,
+        data_size: u32,
+        is_default: bool,
+    ) -> Result<()> {
         self.buffer.clear();
         let res_header = ResponseHeader::new(status, data_size);
         res_header.encode(&mut self.buffer, is_default)?;
@@ -197,7 +201,13 @@ impl ServerTL {
     /// then sends optional payload data.
     pub async fn send_data(&mut self, status: u8, buf: Option<&[u8]>) -> Result<()> {
         let data_size = if let Some(buf) = buf { buf.len() } else { 0 };
-        self.send_response_header(status, data_size as u32).await?;
+        // The frame size is defined by the answer mode, not by the payload
+        // length: `None` (no-answer) sends a 1-byte header, `Some(_)` always
+        // sends a 5-byte header, even for an empty payload. A 1-byte header
+        // for `Some(&[])` would desynchronize clients that always read 5 bytes.
+        let is_default = buf.is_none();
+        self.send_response_header(status, data_size as u32, is_default)
+            .await?;
         let res_header = self.receive_response_header(true).await?;
         if res_header.status != 1 {
             return Err("Receiving response status is not OK".into());
@@ -221,6 +231,28 @@ impl ServerTL {
         Ok(())
     }
 }
+
+#[async_trait]
+impl crate::transport::Transport for ServerTL {
+    async fn read_command(&mut self) -> crate::Result<Option<(u32, u32)>> {
+        self.read_command()
+            .await
+            .map(|opt| opt.map(|(cmd, sz)| (cmd, sz as u32)))
+    }
+
+    async fn receive_data(&mut self, size: u32) -> crate::Result<Vec<u8>> {
+        self.receive_data(size as usize).await
+    }
+
+    async fn send_response(&mut self, status: u8, data: Option<&[u8]>) -> crate::Result<()> {
+        self.send_data(status, data).await
+    }
+
+    async fn shutdown(&mut self) -> crate::Result<()> {
+        self.writer.flush().await.map_err(|e| e.into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -380,26 +412,5 @@ mod tests {
         assert_eq!(response[0], 7); // InvalidDataSize status
 
         server_handle.await.unwrap();
-    }
-}
-
-#[async_trait]
-impl crate::transport::Transport for ServerTL {
-    async fn read_command(&mut self) -> crate::Result<Option<(u32, u32)>> {
-        self.read_command()
-            .await
-            .map(|opt| opt.map(|(cmd, sz)| (cmd, sz as u32)))
-    }
-
-    async fn receive_data(&mut self, size: u32) -> crate::Result<Vec<u8>> {
-        self.receive_data(size as usize).await
-    }
-
-    async fn send_response(&mut self, status: u8, data: Option<&[u8]>) -> crate::Result<()> {
-        self.send_data(status, data).await
-    }
-
-    async fn shutdown(&mut self) -> crate::Result<()> {
-        self.writer.flush().await.map_err(|e| e.into())
     }
 }
