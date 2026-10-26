@@ -34,7 +34,7 @@ use crate::protocol_structs::ResponseStatus;
 
 /// Application command handler.
 ///
-/// Implemented by user code and registered with the [`Server`] through
+/// Implemented by user code and registered with the `Server` through
 /// [`Server::set_protocol_command_handler_factory`]. One instance per
 /// accepted connection.
 ///

@@ -1,5 +1,5 @@
 //! High-level TCP/TLS server with graceful shutdown and per-connection
-//! [`ProtocolCommandHandler`] dispatching.
+//! `ProtocolCommandHandler` dispatching.
 //!
 //! # Example
 //!
@@ -41,13 +41,13 @@ use crate::protocol_command_handler::ProtocolCommandHandler;
 /// High-level TCP/TLS server.
 ///
 /// Binds to an address, accepts connections, and dispatches each connection to a
-/// new [`ConnectionHandler`] that runs the request-response protocol against a
-/// user-provided [`ProtocolCommandHandler`].
+/// new `ConnectionHandler` that runs the request-response protocol against a
+/// user-provided `ProtocolCommandHandler`.
 ///
 /// Supports:
-/// - Plain TCP (default) and TLS (via [`set_secure`](Self::set_secure)).
-/// - Graceful shutdown through [`shutdown`](Self::shutdown) or
-///   [`shutdown_handle`](Self::shutdown_handle).
+/// - Plain TCP (default) and TLS (via `Self::set_secure`).
+/// - Graceful shutdown through `Self::shutdown` or
+///   `Self::shutdown_handle`.
 /// - Per-connection command handler instances via a user-supplied factory closure.
 pub struct Server {
     address: String,
@@ -66,9 +66,9 @@ impl Server {
     /// with the given maximum request payload size in bytes (0 falls back to the
     /// library default of 10 MB).
     ///
-    /// No listener is created until [`run`](Self::run) is awaited, so a
-    /// [`ProtocolCommandHandler`] factory must be configured via
-    /// [`set_protocol_command_handler_factory`](Self::set_protocol_command_handler_factory)
+    /// No listener is created until `Self::run` is awaited, so a
+    /// `ProtocolCommandHandler` factory must be configured via
+    /// `Self::set_protocol_command_handler_factory`
     /// before `run` is called.
     pub fn new(address: String, max_buffer_size: usize) -> Server {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -110,14 +110,14 @@ impl Server {
         Ok(())
     }
 
-    /// Register a factory that creates a fresh [`ProtocolCommandHandler`] for
+    /// Register a factory that creates a fresh `ProtocolCommandHandler` for
     /// every accepted connection.
     ///
     /// The factory is invoked once per connection so that each client gets its
     /// own handler state. The closure must be `Send + Sync + 'static` because
     /// connections are processed by spawned tasks on the tokio runtime.
     ///
-    /// This must be called before [`run`](Self::run); otherwise `run` returns
+    /// This must be called before `Self::run`; otherwise `run` returns
     /// an error immediately.
     pub fn set_protocol_command_handler_factory<F>(&mut self, factory: F)
     where
@@ -126,10 +126,10 @@ impl Server {
         self.protocol_command_handler_factory = Some(Box::new(factory));
     }
 
-    /// Signal the server to stop accepting new connections and exit [`run`](Self::run).
+    /// Signal the server to stop accepting new connections and exit `Self::run`.
     ///
     /// This is a convenience method that consumes the internal sender. Use
-    /// [`shutdown_handle`](Self::shutdown_handle) when the shutdown trigger must
+    /// `Self::shutdown_handle` when the shutdown trigger must
     /// live in a different task or component (e.g. a signal handler).
     pub fn shutdown(&self) {
         let _ = self.shutdown_tx.send(true);
@@ -138,7 +138,7 @@ impl Server {
     /// Clone the shutdown sender so that the shutdown signal can be sent from
     /// another task (e.g. a signal handler, admin endpoint, or test harness).
     ///
-    /// Sending `true` through this handle causes [`run`](Self::run) to break
+    /// Sending `true` through this handle causes `Self::run` to break
     /// out of its accept loop and return.
     pub fn shutdown_handle(&self) -> watch::Sender<bool> {
         self.shutdown_tx.clone()
@@ -148,16 +148,16 @@ impl Server {
     /// received or an unrecoverable error occurs.
     ///
     /// For every accepted connection:
-    /// 1. A fresh [`ProtocolCommandHandler`] is created via the registered factory.
+    /// 1. A fresh `ProtocolCommandHandler` is created via the registered factory.
     /// 2. The connection is handed to a new tokio task that runs the protocol
-    ///    (TCP or TLS, depending on [`set_secure`](Self::set_secure)).
+    ///    (TCP or TLS, depending on `Self::set_secure`).
     /// 3. Errors from individual connections are logged and do **not** stop the
     ///    server.
     ///
     /// # Errors
     ///
     /// - No factory has been registered (call
-    ///   [`set_protocol_command_handler_factory`](Self::set_protocol_command_handler_factory)
+    ///   `Self::set_protocol_command_handler_factory`
     ///   first).
     /// - The address cannot be bound (already in use, insufficient permissions).
     ///

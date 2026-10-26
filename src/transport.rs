@@ -1,9 +1,9 @@
 //! Internal abstraction over TCP and TLS server transports.
 //!
-//! The [`Transport`] trait lets the framework (`ProtocolHandler`, `ConnectionHandler`)
+//! The `Transport` trait lets the framework (`ProtocolHandler`, `ConnectionHandler`)
 //! work uniformly over plain TCP and TLS without duplicating protocol logic.
 //! It is not part of the public API surface; users interact with the server
-//! through [`Server`] and [`ProtocolCommandHandler`](crate::ProtocolCommandHandler)
+//! through `Server` and `ProtocolCommandHandler`
 //! instead.
 
 use async_trait::async_trait;
@@ -37,7 +37,7 @@ pub trait Transport: Send {
     /// Read exactly `size` bytes of request payload from the client.
     ///
     /// `size` must match the `data_size` returned by the most recent
-    /// [`read_command`](Self::read_command) call.
+    /// `read_command` call.
     ///
     /// # Errors
     ///
