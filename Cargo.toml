@@ -25,5 +25,67 @@ socket2 = "0.6.5"
 thiserror = "2.0.21"
 async-trait = "0.1.92"
 
+
+[[example]]
+name = "high_level_server"
+path = "examples/framework/high_level_server.rs"
+
+
+[[example]]
+name = "high_level_client"
+path = "examples/framework/high_level_client.rs"
+
+
+[[example]]
+name = "shutdown_example"
+path = "examples/framework/shutdown_example.rs"
+
+
+[[example]]
+name = "prost_server"
+path = "examples/prost/server.rs"
+
+
+[[example]]
+name = "prost_client"
+path = "examples/prost/client.rs"
+
+
+[[example]]
+name = "simple_server"
+path = "examples/transport/simple_server.rs"
+
+
+[[example]]
+name = "simple_client"
+path = "examples/transport/simple_client.rs"
+
+
+[[example]]
+name = "tls_server"
+path = "examples/transport/tls_server.rs"
+
+
+[[example]]
+name = "tls_client"
+path = "examples/transport/tls_client.rs"
+
+
+[[example]]
+name = "no_answer_mode"
+path = "examples/transport/no_answer_mode.rs"
+
+
+[[example]]
+name = "ping_example"
+path = "examples/transport/ping_example.rs"
+
+
+[[example]]
+name = "ping_tls_example"
+path = "examples/transport/ping_tls_example.rs"
+
 [dev-dependencies]
 tracing-subscriber = "0.3.23"
+prost = "0.14"
+bytes = "1"

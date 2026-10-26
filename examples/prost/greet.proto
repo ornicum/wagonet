@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package greet;
+
+// Request to greet someone
+message GreetRequest {
+  string name = 1;
+  uint32 times = 2;  // How many times to greet
+}
+
+// Response with greetings
+message GreetResponse {
+  repeated string greetings = 1;
+  uint64 total_greetings = 2;
+}
+
+// Request to get server stats
+message StatsRequest {
+}
+
+// Response with server statistics
+message StatsResponse {
+  uint64 total_requests = 1;
+  uint64 active_connections = 2;
+}
