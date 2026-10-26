@@ -75,6 +75,16 @@ pub enum Error {
     #[error("Not connected")]
     NotConnected,
 
+    /// Peer closed the connection at a frame boundary.
+    /// This is a normal disconnect, not an error condition.
+    #[error("connection closed by peer")]
+    ConnectionClosed,
+
+    /// Peer closed the connection in the middle of a frame
+    /// (process crash, network cut, or protocol desync).
+    #[error("connection closed by peer mid-frame: received {received} of {expected} bytes")]
+    ConnectionClosedMidFrame { received: usize, expected: usize },
+
     /// Response status indicates an error.
     #[error("Response error: status {status}")]
     ResponseError { status: u8 },
@@ -109,6 +119,18 @@ impl From<tokio::time::error::Elapsed> for Error {
         Error::Timeout("operation timed out".to_string())
     }
 }
+impl Error {
+    /// Returns `true` when the error means "the peer went away"
+    /// (normal disconnect or crash) rather than a bug, timeout,
+    /// or protocol violation. Useful for choosing the log level.
+    pub fn is_disconnect(&self) -> bool {
+        matches!(
+            self,
+            Error::ConnectionClosed | Error::ConnectionClosedMidFrame { .. }
+        )
+    }
+}
+
 /// Result type alias for wagonet operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 

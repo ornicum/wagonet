@@ -79,7 +79,11 @@ impl<'a> ConnectionHandler<'a> {
                             }
                         }
                         Err(e) => {
-                            error!("Protocol error: {}", e);
+                            if e.is_disconnect() {
+                                info!("Peer {} disconnected: {}", self.peer, e);
+                            } else {
+                                error!("Protocol error for {}: {}", self.peer, e);
+                            }
                             break;
                         }
                     }

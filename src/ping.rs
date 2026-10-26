@@ -227,7 +227,11 @@ impl PingState {
                 .await;
 
                 if let Err(e) = ping_result {
-                    tracing::error!("Ping failed: {}. Marking stream as disconnected.", e);
+                    if e.is_disconnect() {
+                        tracing::debug!("Ping stopped: peer disconnected.");
+                    } else {
+                        tracing::error!("Ping failed: {}. Marking stream as disconnected.", e);
+                    }
                     *stream_guard = None;
                     *should_stop.lock().await = true;
                     break;
@@ -292,7 +296,13 @@ where
     tokio::time::timeout(read_header_timeout, reader.read_exact(&mut status_buf))
         .await
         .map_err(|_| Error::Timeout("Ping response header timeout".to_string()))?
-        .map_err(Error::from)?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                Error::ConnectionClosed
+            } else {
+                Error::from(e)
+            }
+        })?;
 
     let status = status_buf[0];
     if status != 1 {
@@ -317,7 +327,13 @@ where
             if data_size > 0 {
                 // Read and discard payload (shouldn't happen for ping, but handle gracefully)
                 let mut payload = vec![0u8; data_size as usize];
-                reader.read_exact(&mut payload).await.map_err(Error::from)?;
+                reader.read_exact(&mut payload).await.map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                        Error::ConnectionClosed
+                    } else {
+                        Error::from(e)
+                    }
+                })?;
             }
             // data_size == 0: no payload
             Ok(())

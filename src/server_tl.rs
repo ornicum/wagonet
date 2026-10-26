@@ -67,14 +67,16 @@ impl ServerTL {
 
         match tokio::time::timeout(
             self.timeout_config.read_header,
-            self.reader.read_exact(&mut self.buffer),
+            crate::common::read_exact_or_closed(&mut self.reader, &mut self.buffer),
         )
         .await
         {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Receiving request header error: {e}");
-                return Err(e.into());
+                if !e.is_disconnect() {
+                    error!("Receiving request header error: {e}");
+                }
+                return Err(e);
             }
             Err(_) => {
                 error!("Request header receive timeout");
@@ -179,12 +181,20 @@ impl ServerTL {
 
         match tokio::time::timeout(
             self.timeout_config.read_data,
-            self.reader.read_exact(&mut self.buffer),
+            crate::common::read_exact_or_closed(&mut self.reader, &mut self.buffer),
         )
         .await
         {
             Ok(Ok(_)) => {}
-            Ok(Err(e)) => return Err(e.into()),
+            Ok(Err(e)) => {
+                return Err(match e {
+                    Error::ConnectionClosed => Error::ConnectionClosedMidFrame {
+                        received: 0,
+                        expected: buf_size,
+                    },
+                    other => other,
+                });
+            }
             Err(_) => {
                 error!("Data receive timeout");
                 return Err("Timeout waiting for data".into());
