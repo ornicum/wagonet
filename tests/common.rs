@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Common test utilities for wagonet integration tests.
 
 use std::future::Future;

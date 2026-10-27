@@ -248,14 +248,13 @@ See [examples/](examples/) directory:
 ## Testing
 
 ```bash
-cargo test
-# 6 tests passing:
-# - test_tcp_transport_success
-# - test_tcp_transport_buffer_overflow
-# - test_tcp_transport_no_answer
-# - test_tls_transport_success
-# - test_request_header
-# - test_response_header
+cargo test --all-targets
+# 6 test suites (62 tests passing):
+# - Unit tests (src/lib.rs): 36 tests
+# - Framework tests: 17 tests
+# - Integration tests: 5 tests
+# - Keep-alive tests: 3 tests
+# - Backward-compat tests: 2 tests (1 ignored)
 ```
 
 ## License

@@ -11,16 +11,15 @@ use crate::server_tl::ServerTL;
 use crate::server_tls::ServerTLS;
 use crate::transport::Transport;
 
-pub struct ConnectionHandler<'a> {
+pub struct ConnectionHandler {
     stream: Option<TcpStream>,
     tls_acceptor: Option<Arc<TlsAcceptor>>,
     peer: SocketAddr,
     max_buffer_size: usize,
     shutdown_rx: watch::Receiver<bool>,
-    _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> ConnectionHandler<'a> {
+impl ConnectionHandler {
     pub fn new(
         stream: TcpStream,
         peer: SocketAddr,
@@ -33,7 +32,6 @@ impl<'a> ConnectionHandler<'a> {
             peer,
             max_buffer_size,
             shutdown_rx,
-            _marker: std::marker::PhantomData,
         }
     }
 
