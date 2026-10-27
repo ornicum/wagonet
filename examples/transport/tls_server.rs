@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 println!("Received: {:?}", String::from_utf8_lossy(&data));
 
                 let response = format!("TLS Echo: {}", String::from_utf8_lossy(&data));
-                if let Err(e) = server.send_data(0, Some(response.as_bytes())).await {
+                if let Err(e) = server.send_data(1, Some(response.as_bytes())).await {
                     eprintln!("Send error: {}", e);
                     break;
                 }

@@ -46,9 +46,7 @@ stateDiagram-v2
     Created --> Connecting: handle_message() or connect()
     Connecting --> Connected: TCP connect + optional TLS
     Connected --> Connected: keep_alive=true & handle_message()
-    Connected --> Disconnecting: keep_alive=false & handle_message() done
     Connected --> Disconnecting: disconnect() called
-    Connected --> Connecting: retry on failure (keep_alive=true)
     Disconnecting --> Disconnected: shutdown() + stream=None
     Disconnected --> [*]
 ```
@@ -88,12 +86,11 @@ flowchart TD
     Connect --> SendRecv
     SendRecv --> Success{OK?}
     Success -->|Yes| Return[Return response]
-    Success -->|No & keep_alive| Retry[stream=None, connect(), retry once]
-    Success -->|No & !keep_alive| Error[Return error]
-    Retry --> Success2{OK?}
-    Success2 -->|Yes| Return
-    Success2 -->|No| Error2[Return error]
-```
+    Success -->|No| Error[Return error]
+
+    subgraph Note[No built-in retry]
+    RetryNote[Note: No built-in retry; caller responsibility]
+    end
 
 ## Key Implementation Details
 
@@ -143,6 +140,6 @@ let resp2 = client.handle_message(2, b"world").await?;
 
 1. **TLS Validation**: `ClientTLS::new()` defaults to `accept_invalid_certs: false` - certificate validation enabled by default
 2. **No Health-Check Byte Consumption**: Removed problematic health-check that consumed wire bytes
-3. **Bounded Retries**: Maximum 1 retry on failure, no infinite loops
+3. **Connection lifecycle**: Stream is cleared on failure; caller is responsible for retries
 4. **Resource Cleanup**: `disconnect()` clears stream on both success and error paths
 5. **No Secrets in Logs**: All logging uses fixed strings and error codes only

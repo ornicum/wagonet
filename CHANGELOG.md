@@ -84,7 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Panic race condition in `ClientTL` and `ClientTLS` (`.unwrap()` after `is_none()` check replaced with proper error handling)
 - Error type unification in `ClientTLS` (all methods now return `crate::Result` instead of `Box<dyn Error + Send + Sync>`)
 - `#[must_use]` added to public functions where appropriate
-- `#[non_exhaustive]` added to public enums (`Error`, `Command`, `ResponseStatus`)
+- `#[non_exhaustive]` added to public enums (`Command`, `ResponseStatus`); `Error` already had it
 
 ### Removed
 

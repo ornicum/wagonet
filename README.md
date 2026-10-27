@@ -18,6 +18,8 @@ High-performance async TCP/TLS transport library with custom binary protocol.
 - **No-Answer Mode**: Fire-and-forget commands
 - **Buffer Protection**: Configurable max buffer size (10 MB default)
 - **Async/Await**: Built on `tokio` with full async/await support
+- ⚠️ **Plain TCP is unencrypted.** `ClientTL` and `ServerTL` transmit all commands, payloads, and statuses in the clear. Use `ClientTLS`/`ServerTLS` (TLS mode) for confidentiality and integrity on untrusted networks.
+
 
 ## Quick Start
 
@@ -39,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = ClientTL::new("127.0.0.1:8080".to_string());
     
     // Enable keep-alive with custom timing
-    client.set_keep_alive(true);
+    client.set_keep_alive(true).await;
     client.set_timeout_config(TimeoutConfig {
         keep_alive: Some(KeepAliveConfig {
             time: Duration::from_secs(60),    // idle before first probe
@@ -96,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (stream, addr) = listener.accept().await?;
         println!("Client connected: {}", addr);
         
-        let (reader, writer) = stream.split();
+        let (reader, writer) = stream.into_split();
         let mut server = ServerTL::new(reader, writer);
         
         tokio::spawn(async move {
@@ -107,7 +109,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("Received cmd={}, size={}, data={:?}", cmd, size, data);
                         
                         // Echo back
-                        server.send_data(0, Some(&data)).await?;
+                        server.send_data(1, Some(&data)).await?;
                     }
                     Ok(None) => {
                         // Ping handled automatically, ACK already sent
@@ -234,7 +236,9 @@ See [examples/](examples/) directory:
 
 ## Security
 
+- ⚠️ **Plain TCP is unencrypted.** `ClientTL` and `ServerTL` transmit all commands, payloads, and statuses in the clear. Use `ClientTLS`/`ServerTLS` (TLS mode) for confidentiality and integrity on untrusted networks.
 - TLS certificate validation **enabled by default** (`accept_invalid_certs: false`)
+
 - No secrets in logs (only fixed strings and error codes)
 - Bounded retries (no infinite loops)
 - No sensitive data in error messages

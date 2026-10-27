@@ -1,7 +1,12 @@
 use strum_macros::{Display, FromRepr};
 
 /// Protocol command codes.
+///
+/// This enum is non-exhaustive: additional command codes may be added in
+/// future releases without a breaking change. External `match` statements
+/// must include a catch-all arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 #[repr(u32)]
 pub enum Command {
     /// Ping command (empty request/response for keep-alive).
@@ -14,7 +19,13 @@ impl From<Command> for u32 {
     }
 }
 
+/// Response status codes.
+///
+/// This enum is non-exhaustive: additional status codes may be added in
+/// future releases without a breaking change. External `match` statements
+/// must include a catch-all arm.
 #[derive(Debug, Display, Clone, Copy, FromRepr, PartialEq)]
+#[non_exhaustive]
 #[repr(u8)]
 pub enum ResponseStatus {
     #[strum(serialize = "Unknown error")]

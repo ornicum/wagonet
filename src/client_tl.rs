@@ -19,9 +19,18 @@ use crate::{Error, Result};
 /// Plain TCP client with connection reuse, ping keep-alive, and configurable timeouts.
 ///
 /// # Features
-/// - **Connection reuse** via `keep_alive` (enabled with `set_keep_alive(true)`)
 /// - **Application-level ping keep-alive**: periodic empty requests to prevent server timeout
-/// - **Bounded retry**: 1 retry on transient failure when keep-alive is enabled
+/// - **Configurable timeouts**: connect, read_header, read_data, write
+/// - **TCP keep-alive**: OS-level probes via `socket2` (idle time, interval)
+/// - **No-answer mode**: fire-and-forget commands via `set_command_has_answer(false)`
+/// - **Buffer protection**: configurable max buffer size (default 10 MB)
+///
+/// ⚠️ **Plain TCP is unencrypted.** All commands, payloads, and statuses are transmitted
+/// in the clear. Use `ClientTLS` (TLS mode) for confidentiality and integrity on
+/// untrusted networks.
+///
+/// # Features
+/// - **Application-level ping keep-alive**: periodic empty requests to prevent server timeout
 /// - **Configurable timeouts**: connect, read_header, read_data, write
 /// - **TCP keep-alive**: OS-level probes via `socket2` (idle time, interval)
 /// - **No-answer mode**: fire-and-forget commands via `set_command_has_answer(false)`
@@ -423,9 +432,10 @@ impl ClientTL {
     ///
     /// Behavior:
     /// - If `keep_alive=true` and a connection exists, reuses it.
-    /// - Otherwise establishes a new connection (with retry).
+    /// - Otherwise establishes a new connection.
     /// - Sends request header + data, reads response header + data.
-    /// - On transient failure with `keep_alive=true`: clears stream, reconnects, retries once.
+    /// - On failure: clears the stream and returns the error.
+    ///   Callers must implement their own retry logic if needed.
     /// - Returns response payload bytes.
     pub async fn handle_message(&mut self, command: u32, request_data: &[u8]) -> Result<Vec<u8>> {
         if !self.keep_alive || self.stream.lock().await.is_none() {

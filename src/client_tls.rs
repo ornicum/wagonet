@@ -23,9 +23,7 @@ use crate::timeout_config::{
 /// - **TLS encryption** via `native-tls` / `tokio-native-tls`
 /// - **Certificate validation enabled by default** (`accept_invalid_certs: false`)
 /// - **SNI support** via `set_domain()` (required for certificate verification)
-/// - **Connection reuse** via `keep_alive` (enabled with `set_keep_alive(true)`)
 /// - **Application-level ping keep-alive**: periodic empty requests to prevent server timeout
-/// - **Bounded retry**: 1 retry on transient failure when keep-alive is enabled
 /// - **Configurable timeouts**: connect, read_header, read_data, write
 /// - **TCP keep-alive**: OS-level probes via `socket2`
 /// - **No-answer mode**: fire-and-forget commands via `set_command_has_answer(false)`
@@ -483,9 +481,10 @@ impl ClientTLS {
     ///
     /// Behavior:
     /// - If `keep_alive=true` and a connection exists, reuses it.
-    /// - Otherwise establishes a new TLS connection (with retry).
+    /// - Otherwise establishes a new TLS connection.
     /// - Sends request header + data, reads response header + data.
-    /// - On transient failure with `keep_alive=true`: clears stream, reconnects, retries once.
+    /// - On failure: clears the stream and returns the error.
+    ///   Callers must implement their own retry logic if needed.
     /// - Returns response payload bytes.
     pub async fn handle_message(&mut self, command: u32, request_data: &[u8]) -> Result<Vec<u8>> {
         if !self.keep_alive || self.tls_stream.lock().await.is_none() {

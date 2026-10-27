@@ -17,7 +17,6 @@
 //! - TCP and TLS transports with custom binary protocol
 //! - Configurable timeouts (connect, read_header, read_data, write)
 //! - **TCP keep-alive** via socket2 (configurable idle time, probe interval)
-//! - **Connection reuse** with bounded retry (1 retry) and health-aware reconnection
 //! - Secure TLS defaults (certificate validation enabled by default)
 //! - Symmetric client/server logic
 //! - No-answer mode for fire-and-forget commands

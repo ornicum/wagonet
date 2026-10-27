@@ -19,6 +19,18 @@ use crate::timeout_config::TimeoutConfig;
 ///
 /// Created per-connection from a split `TcpStream` (reader/writer halves).
 /// Does not manage the connection lifecycle - the caller handles `accept()` and spawning.
+///
+/// ⚠️ **Plain TCP is unencrypted.** All commands, payloads, and statuses are transmitted
+/// in the clear. Use `ServerTLS` (TLS mode) for confidentiality and integrity on
+/// untrusted networks.
+///
+/// Processes incoming requests using the custom binary protocol:
+/// - Reads command header (command + data_size)
+/// - Receives request data
+/// - Sends response header + optional response data
+///
+/// Created per-connection from a split `TcpStream` (reader/writer halves).
+/// Does not manage the connection lifecycle - the caller handles `accept()` and spawning.
 #[derive(Debug)]
 pub struct ServerTL {
     reader: OwnedReadHalf,
