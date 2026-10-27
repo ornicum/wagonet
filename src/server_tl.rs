@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tracing::error;
@@ -104,20 +105,24 @@ impl ServerTL {
         // Ping must have data_size=0, otherwise it's a protocol violation.
         if req_header.command == Command::Ping.into() {
             if data_size != 0 {
-                self.send_response_header(7, 0, true).await?;
+                self.send_response_header(7, 0, true, self.timeout_config.ping_write)
+                    .await?;
                 return Err(Error::Protocol("Ping must have data_size=0".into()));
             }
             // Send 1-byte response: status=Ok(1), data_size=0 (default encoding)
-            self.send_response_header(1, 0, true).await?;
+            self.send_response_header(1, 0, true, self.timeout_config.ping_write)
+                .await?;
             return Ok(None);
         }
 
         if data_size > self.max_buffer_size {
-            self.send_response_header(7, 0, true).await?;
+            self.send_response_header(7, 0, true, self.timeout_config.write)
+                .await?;
             error!("Request rejected: data size {data_size} exceeds MAX_BUFFER_SIZE");
             return Err("Data size exceeds maximum allowed buffer size".into());
         }
-        self.send_response_header(1, 0, true).await?;
+        self.send_response_header(1, 0, true, self.timeout_config.write)
+            .await?;
         Ok(Some((req_header.command, req_header.data_size as usize)))
     }
 
@@ -126,17 +131,13 @@ impl ServerTL {
         status: u8,
         data_size: u32,
         is_default: bool,
+        timeout: Duration,
     ) -> Result<()> {
         self.buffer.clear();
         let res_header = ResponseHeader::new(status, data_size);
         res_header.encode(&mut self.buffer, is_default)?;
 
-        match tokio::time::timeout(
-            self.timeout_config.write,
-            self.writer.write_all(&self.buffer),
-        )
-        .await
-        {
+        match tokio::time::timeout(timeout, self.writer.write_all(&self.buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
                 error!("Sending response header error: {e}");
@@ -228,8 +229,13 @@ impl ServerTL {
         // sends a 5-byte header, even for an empty payload. A 1-byte header
         // for `Some(&[])` would desynchronize clients that always read 5 bytes.
         let is_default = buf.is_none();
-        self.send_response_header(status, data_size as u32, is_default)
-            .await?;
+        self.send_response_header(
+            status,
+            data_size as u32,
+            is_default,
+            self.timeout_config.write,
+        )
+        .await?;
         let res_header = self.receive_response_header(true).await?;
         if res_header.status != 1 {
             return Err("Receiving response status is not OK".into());
@@ -281,9 +287,9 @@ mod tests {
     use crate::request_header::RequestHeader;
     use crate::response_header::ResponseHeader;
     use crate::timeout_config::TimeoutConfig;
-    use std::time::Duration;
+    use std::time::Instant;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::TcpListener;
+    use tokio::net::{TcpListener, TcpStream};
 
     #[tokio::test]
     async fn server_tl_ping_no_payload() {
@@ -434,5 +440,48 @@ mod tests {
         assert_eq!(response[0], 7); // InvalidDataSize status
 
         server_handle.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn ping_write_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let mut client = TcpStream::connect(addr).await.unwrap();
+        let (server_stream, _) = listener.accept().await.unwrap();
+        let (server_reader, server_writer) = server_stream.into_split();
+
+        // Fill the server→client socket buffer so server writes block
+        let big_data = vec![0u8; 65536];
+        loop {
+            match server_writer.try_write(&big_data) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => continue,
+            }
+        }
+
+        let mut server = ServerTL::new(server_reader, server_writer);
+        server.set_timeout_config(TimeoutConfig {
+            ping_write: Duration::from_millis(200),
+            ..Default::default()
+        });
+
+        // Send ping header (command=0, data_size=0) to the server
+        let ping_header = RequestHeader::new(Command::Ping.into(), 0);
+        let mut buf = Vec::new();
+        ping_header.encode(&mut buf).unwrap();
+        client.write_all(&buf).await.unwrap();
+
+        // Server should time out trying to write the ping response
+        let start = Instant::now();
+        let result = server.read_command().await;
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err(), "Expected error, got {:?}", result);
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "read_command took too long: {:?}",
+            elapsed
+        );
     }
 }

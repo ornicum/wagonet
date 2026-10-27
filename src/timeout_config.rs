@@ -14,8 +14,9 @@ pub const DEFAULT_WRITE_TIMEOUT: Duration = Duration::from_secs(60);
 pub const DEFAULT_KEEP_ALIVE_TIME: Duration = Duration::from_secs(30);
 /// Default TCP keep-alive interval (between probes).
 pub const DEFAULT_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
-/// Default interval for application-level ping keep-alive.
 pub const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(30);
+/// Default timeout for writing ping responses.
+pub const DEFAULT_PING_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Default maximum connect retries.
 pub const DEFAULT_MAX_CONNECT_RETRIES: u8 = 10;
 /// Default delay between connect retries.
@@ -37,6 +38,9 @@ pub struct TimeoutConfig {
     /// Overall deadline for the connect retry loop.
     /// Default: 30 seconds.
     pub connect_total: Duration,
+    /// Timeout for writing ping responses.
+    /// Default: 5 seconds.
+    pub ping_write: Duration,
     /// Interval for sending ping requests to keep the connection alive.
     /// Default: 30 seconds. Must be less than read_header to be effective.
     pub ping_interval: Duration,
@@ -66,6 +70,7 @@ impl Default for TimeoutConfig {
             write: DEFAULT_WRITE_TIMEOUT,
             keep_alive: None,
             connect_total: DEFAULT_CONNECT_TOTAL_TIMEOUT,
+            ping_write: DEFAULT_PING_WRITE_TIMEOUT,
             ping_interval: DEFAULT_PING_INTERVAL,
         }
     }
@@ -78,6 +83,11 @@ impl TimeoutConfig {
         if self.connect_total == Duration::ZERO {
             return Err(Error::Config(
                 "connect_total must be greater than zero".to_string(),
+            ));
+        }
+        if self.ping_write == Duration::ZERO {
+            return Err(Error::Config(
+                "ping_write must be greater than zero".to_string(),
             ));
         }
         if self.ping_interval >= self.read_header {

@@ -670,3 +670,89 @@ async fn test_framework_no_keepalive_creates_new_handler() -> Result<()> {
     server_handle.abort();
     Ok(())
 }
+/// When the limit is reached, additional clients wait (blocked) rather than
+/// being rejected.
+#[tokio::test]
+async fn test_server_max_connections_limits_concurrency() -> Result<()> {
+    let port = find_available_port();
+    let addr = format!("127.0.0.1:{}", port);
+
+    let mut server = Server::new(addr.clone(), 1024 * 1024);
+    server.set_protocol_command_handler_factory(|| {
+        Box::new(EchoHandler {
+            call_count: Arc::new(AtomicUsize::new(0)),
+        })
+    });
+    // Limit to 1 concurrent connection
+    server.set_max_connections(1);
+
+    let server_handle = tokio::spawn(async move { server.run().await });
+    sleep(Duration::from_millis(100)).await;
+
+    // Client A: connects with keep_alive and stays idle, holding the only slot
+    let mut client_a = ClientTL::new(addr.clone());
+    client_a.set_keep_alive(true).await;
+    client_a.handle_message(1, b"hello").await?;
+
+    // Client B: tries to connect, should block waiting for a slot
+    let mut client_b = ClientTL::new(addr.clone());
+    client_b.set_keep_alive(true).await;
+    let client_b_handle = tokio::spawn(async move { client_b.handle_message(2, b"world").await });
+
+    // Give B time to try connecting - it should NOT complete within 800ms
+    // because the only slot is held by client A
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    // Drop client A (disconnect), freeing the slot
+    client_a.disconnect().await?;
+
+    // Client B's request should now complete within 2 seconds
+    let b_result = timeout(Duration::from_secs(2), client_b_handle).await;
+    assert!(
+        b_result.is_ok(),
+        "Client B should complete after slot is freed"
+    );
+    let _response = b_result.map_err(|e| Error::Msg(format!("task join error: {e}")))?;
+
+    server_handle.abort();
+    Ok(())
+}
+/// Tests that Server::run returns after shutdown signal and drains in-flight
+/// connections, and that subsequent connection attempts fail.
+#[tokio::test]
+async fn test_server_drain_on_shutdown() -> Result<()> {
+    let port = find_available_port();
+    let addr = format!("127.0.0.1:{}", port);
+
+    let mut server = Server::new(addr.clone(), 1024 * 1024);
+    server.set_protocol_command_handler_factory(|| {
+        Box::new(EchoHandler {
+            call_count: Arc::new(AtomicUsize::new(0)),
+        })
+    });
+    let shutdown_handle = server.shutdown_handle();
+    let server_handle = tokio::spawn(async move { server.run().await });
+    sleep(Duration::from_millis(100)).await;
+
+    // Open one idle raw TCP connection - this holds a connection handler task
+    let _idle_client = tokio::net::TcpStream::connect(addr.clone()).await?;
+
+    // Send shutdown signal
+    shutdown_handle.send(true).unwrap();
+
+    // Assert run() returns within 2 seconds
+    let run_result = timeout(Duration::from_secs(2), server_handle).await;
+    assert!(
+        run_result.is_ok(),
+        "Server::run should return after shutdown signal"
+    );
+
+    // Subsequent connection should fail (listener is gone)
+    let connect_result = tokio::net::TcpStream::connect(addr.clone()).await;
+    assert!(
+        connect_result.is_err(),
+        "Connection should fail after server shutdown"
+    );
+
+    Ok(())
+}

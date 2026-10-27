@@ -30,8 +30,12 @@
 use native_tls::{Identity, TlsAcceptor as NativeTlsAcceptor};
 use std::error::Error;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
 use tokio::sync::watch;
+use tokio::task::JoinHandle;
+use tokio::time::sleep;
 use tokio_native_tls::TlsAcceptor;
 use tracing::{error, info};
 
@@ -49,6 +53,13 @@ use crate::protocol_command_handler::ProtocolCommandHandler;
 /// - Graceful shutdown through `Self::shutdown` or
 ///   `Self::shutdown_handle`.
 /// - Per-connection command handler instances via a user-supplied factory closure.
+///
+/// Backoff delay after an accept error before retrying, to avoid a tight
+/// CPU-burning spin on sustained failures (e.g. EMFILE).
+const ACCEPT_ERROR_BACKOFF: Duration = Duration::from_millis(100);
+const DEFAULT_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// High-level TCP/TLS server.
 pub struct Server {
     address: String,
     listener: Option<TcpListener>,
@@ -59,6 +70,8 @@ pub struct Server {
         Option<Box<dyn Fn() -> Box<dyn ProtocolCommandHandler> + Send + Sync + 'static>>,
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
+    drain_timeout: Duration,
+    max_connections: usize,
 }
 
 impl Server {
@@ -76,8 +89,10 @@ impl Server {
             address,
             listener: None,
             is_tls: false,
-            tls_acceptor: None,
+            drain_timeout: DEFAULT_DRAIN_TIMEOUT,
             max_buffer_size,
+            max_connections: 1024,
+            tls_acceptor: None,
             protocol_command_handler_factory: None,
             shutdown_tx,
             shutdown_rx,
@@ -125,8 +140,28 @@ impl Server {
     {
         self.protocol_command_handler_factory = Some(Box::new(factory));
     }
+    /// Set the maximum number of concurrent connections.
+    ///
+    /// `0` means unlimited (no connection limit).
+    ///
+    /// When the limit is reached, the accept loop waits for a free slot.
+    /// Excess clients wait in the OS listen backlog; they are **not**
+    /// rejected.
+    pub fn set_max_connections(&mut self, max_connections: usize) {
+        self.max_connections = max_connections;
+    }
+    /// Set the maximum time to wait for in-flight connections to finish
+    /// after shutdown is signaled.
+    ///
+    /// `0` means no timeout (wait forever).
+    pub fn set_drain_timeout(&mut self, duration: Duration) {
+        self.drain_timeout = duration;
+    }
 
     /// Signal the server to stop accepting new connections and exit `Self::run`.
+    ///
+    /// `Self::run` will return after the accept loop stops and all in-flight
+    /// connections have drained (or the drain timeout has expired).
     ///
     /// This is a convenience method that consumes the internal sender. Use
     /// `Self::shutdown_handle` when the shutdown trigger must
@@ -140,6 +175,9 @@ impl Server {
     ///
     /// Sending `true` through this handle causes `Self::run` to break
     /// out of its accept loop and return.
+    ///
+    /// `Self::run` will return after the accept loop stops and all in-flight
+    /// connections have drained (or the drain timeout has expired).
     pub fn shutdown_handle(&self) -> watch::Sender<bool> {
         self.shutdown_tx.clone()
     }
@@ -153,6 +191,10 @@ impl Server {
     ///    (TCP or TLS, depending on `Self::set_secure`).
     /// 3. Errors from individual connections are logged and do **not** stop the
     ///    server.
+    ///
+    /// `run` returns after the accept loop stops (due to shutdown) and all
+    /// in-flight connections have drained, or the drain timeout has expired
+    /// (in which case remaining connections are aborted).
     ///
     /// # Errors
     ///
@@ -178,7 +220,27 @@ impl Server {
             }
         }
 
+        let semaphore: Option<Arc<Semaphore>> = if self.max_connections != 0 {
+            Some(Arc::new(Semaphore::new(self.max_connections)))
+        } else {
+            None
+        };
+
+        let mut connection_handles: Vec<JoinHandle<()>> = Vec::new();
+
         loop {
+            connection_handles.retain(|h| !h.is_finished());
+
+            let permit = if let Some(ref sem) = semaphore {
+                sem.clone().acquire_owned().await.ok()
+            } else {
+                None
+            };
+            let permit = match permit {
+                Some(p) => p,
+                None => break,
+            };
+
             let accept_result = tokio::select! {
                 res = self.listener.as_ref().unwrap().accept() => res,
                 _ = self.shutdown_rx.changed() => {
@@ -205,17 +267,55 @@ impl Server {
                     }
                     let protocol_command_handler =
                         self.protocol_command_handler_factory.as_ref().unwrap()();
-                    tokio::spawn(async move {
+                    connection_handles.push(tokio::spawn(async move {
+                        let _permit = permit;
                         if let Err(e) = client.run(protocol_command_handler).await {
                             error!("Connection handler failed for {}: {}", peer, e);
                         }
-                    });
+                    }));
                 }
                 Err(e) => {
                     error!("Accept error: {}", e);
+                    // Back off before retrying to avoid a tight spin on
+                    // sustained failures (e.g. EMFILE), but remain
+                    // interruptible by shutdown.
+                    let backoff = sleep(ACCEPT_ERROR_BACKOFF);
+                    tokio::pin!(backoff);
+                    tokio::select! {
+                        _ = &mut backoff => {}
+                        _ = self.shutdown_rx.changed() => {
+                            if *self.shutdown_rx.borrow() {
+                                info!("Shutdown signal received, stopping server.");
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
+        // Drain in-flight connections
+        let drain_start = std::time::Instant::now();
+        let mut i = 0;
+        while i < connection_handles.len() {
+            let elapsed = drain_start.elapsed();
+            if elapsed >= self.drain_timeout {
+                for handle in connection_handles.drain(i..) {
+                    handle.abort();
+                }
+                break;
+            }
+            let remaining = self.drain_timeout.saturating_sub(elapsed);
+            match tokio::time::timeout(remaining, &mut connection_handles[i]).await {
+                Ok(_) => i += 1,
+                Err(_) => {
+                    for handle in connection_handles.drain(i..) {
+                        handle.abort();
+                    }
+                    break;
+                }
+            }
+        }
+
         Ok(())
     }
 }

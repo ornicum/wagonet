@@ -239,6 +239,9 @@ impl ClientTLS {
                         let tls_stream = connector.connect(self.domain.as_str(), stream).await?;
                         *self.tls_stream.lock().await = Some(tls_stream);
 
+                        // Stop any existing ping task before starting a new one
+                        self.ping_state.stop_ping_task();
+
                         // Start ping task if keep_alive is enabled
                         if self.keep_alive && self.ping_state.is_enabled().await {
                             self.ping_state

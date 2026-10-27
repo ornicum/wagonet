@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use std::pin::Pin;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tracing::error;
 
@@ -92,20 +93,24 @@ impl<'a> ServerTLS<'a> {
         // Ping must have data_size=0, otherwise it's a protocol violation.
         if req_header.command == Command::Ping.into() {
             if data_size != 0 {
-                self.send_response_header(7, 0, true).await?;
+                self.send_response_header(7, 0, true, self.timeout_config.ping_write)
+                    .await?;
                 return Err(Error::Protocol("Ping must have data_size=0".into()));
             }
             // Send 1-byte response: status=Ok(1), data_size=0 (default encoding)
-            self.send_response_header(1, 0, true).await?;
+            self.send_response_header(1, 0, true, self.timeout_config.ping_write)
+                .await?;
             return Ok(None);
         }
 
         if data_size > self.max_buffer_size {
-            self.send_response_header(7, 0, true).await?;
+            self.send_response_header(7, 0, true, self.timeout_config.write)
+                .await?;
             error!("Request rejected: data size {data_size} exceeds MAX_BUFFER_SIZE");
             return Err("Data size exceeds maximum allowed buffer size".into());
         }
-        self.send_response_header(1, 0, true).await?;
+        self.send_response_header(1, 0, true, self.timeout_config.write)
+            .await?;
         Ok(Some((req_header.command, req_header.data_size as usize)))
     }
 
@@ -114,17 +119,13 @@ impl<'a> ServerTLS<'a> {
         status: u8,
         data_size: u32,
         is_default: bool,
+        timeout: Duration,
     ) -> Result<()> {
         self.buffer.clear();
         let res_header = ResponseHeader::new(status, data_size);
         res_header.encode(&mut self.buffer, is_default)?;
 
-        match tokio::time::timeout(
-            self.timeout_config.write,
-            self.tls_stream.write_all(&self.buffer),
-        )
-        .await
-        {
+        match tokio::time::timeout(timeout, self.tls_stream.write_all(&self.buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
                 error!("Sending response header error: {e}");
@@ -211,8 +212,13 @@ impl<'a> ServerTLS<'a> {
         // sends a 5-byte header, even for an empty payload. A 1-byte header
         // for `Some(&[])` would desynchronize clients that always read 5 bytes.
         let is_default = buf.is_none();
-        self.send_response_header(status, data_size as u32, is_default)
-            .await?;
+        self.send_response_header(
+            status,
+            data_size as u32,
+            is_default,
+            self.timeout_config.write,
+        )
+        .await?;
         let res_header = self.receive_response_header(true).await?;
         if res_header.status != 1 {
             return Err("Receiving response status is not OK".into());

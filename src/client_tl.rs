@@ -184,6 +184,9 @@ impl ClientTL {
                         error!("CLIENT: New TCP connection established");
                         *self.stream.lock().await = Some(stream);
 
+                        // Stop any existing ping task before starting a new one
+                        self.ping_state.stop_ping_task();
+
                         // Start ping task if keep_alive is enabled
                         if self.keep_alive && self.ping_state.is_enabled().await {
                             self.ping_state
@@ -755,5 +758,51 @@ mod tests {
             elapsed
         );
         assert_matches!(result, Err(Error::Timeout(_)));
+    }
+    #[tokio::test]
+    async fn connect_stops_stale_ping_task() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let ping_count = Arc::new(AtomicUsize::new(0));
+        let ping_count_clone = ping_count.clone();
+
+        run_mock_server_tl(listener, None, Some(ping_count_clone)).await;
+
+        let mut client = ClientTL::new(addr.to_string());
+        client.set_keep_alive(true).await;
+        client
+            .set_timeout_config(TimeoutConfig {
+                ping_interval: Duration::from_millis(100),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+
+        // First connect — starts ping task
+        client.connect().await.unwrap();
+
+        // Second connect — should stop old ping task and start a new one
+        client.connect().await.unwrap();
+
+        // Abort the current ping task handle
+        let handle = client.ping_state.task_handle().try_lock().unwrap().take();
+        assert!(handle.is_some(), "Expected a running ping task");
+        handle.unwrap().abort();
+
+        // Record ping counter after aborting
+        let count_after_abort = ping_count.load(Ordering::SeqCst);
+
+        // Wait ~300 ms (three ping intervals). Without the fix, a stale
+        // task would keep pinging and the counter would grow.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        let count_after_sleep = ping_count.load(Ordering::SeqCst);
+        assert_eq!(
+            count_after_abort, count_after_sleep,
+            "Stale ping task kept pinging after abort: {} -> {}",
+            count_after_abort, count_after_sleep
+        );
+
+        client.disconnect().await.unwrap();
     }
 }
