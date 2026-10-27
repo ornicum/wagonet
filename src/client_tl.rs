@@ -522,9 +522,18 @@ impl ClientTL {
         request_data: &[u8],
     ) -> Result<Vec<u8>> {
         self.command_has_answer = false;
-        let res = self.handle_message(command, request_data).await;
-        self.command_has_answer = true;
-        res
+        let guard = NoAnswerGuard { client: self };
+        guard.client.handle_message(command, request_data).await
+    }
+}
+
+pub(crate) struct NoAnswerGuard<'a> {
+    client: &'a mut ClientTL,
+}
+
+impl Drop for NoAnswerGuard<'_> {
+    fn drop(&mut self) {
+        self.client.command_has_answer = true;
     }
 }
 
@@ -586,6 +595,34 @@ mod tests {
         // Values <= 0 reset to the default limit.
         assert!(client.set_max_buffer_size(0).is_ok());
         assert_eq!(client.max_buffer_size, DEFAULT_MAX_BUFFER_SIZE);
+    }
+
+    #[test]
+    fn no_answer_guard_restores_flag_on_drop() {
+        let mut client = ClientTL::new("127.0.0.1:0".to_string());
+        client.command_has_answer = false;
+        {
+            let _guard = NoAnswerGuard {
+                client: &mut client,
+            };
+        }
+        assert!(client.command_has_answer);
+    }
+
+    #[test]
+    fn no_answer_guard_restores_flag_on_panic() {
+        let mut client = ClientTL::new("127.0.0.1:0".to_string());
+        client.command_has_answer = false;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = NoAnswerGuard {
+                client: &mut client,
+            };
+            panic!("simulated handler panic");
+        }));
+
+        assert!(result.is_err());
+        assert!(client.command_has_answer);
     }
 
     #[tokio::test]

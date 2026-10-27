@@ -570,9 +570,18 @@ impl ClientTLS {
         request_data: &[u8],
     ) -> Result<Vec<u8>> {
         self.command_has_answer = false;
-        let res = self.handle_message(command, request_data).await;
-        self.command_has_answer = true;
-        res
+        let guard = NoAnswerGuard { client: self };
+        guard.client.handle_message(command, request_data).await
+    }
+}
+
+pub(crate) struct NoAnswerGuard<'a> {
+    client: &'a mut ClientTLS,
+}
+
+impl Drop for NoAnswerGuard<'_> {
+    fn drop(&mut self) {
+        self.client.command_has_answer = true;
     }
 }
 
@@ -609,6 +618,38 @@ mod tests {
         assert_eq!(decoded.command, Command::Ping.into());
         assert_eq!(decoded.data_size, 0);
     }
+
+    #[test]
+    fn no_answer_guard_restores_flag_on_drop() {
+        use super::NoAnswerGuard;
+        let mut client = ClientTLS::new("127.0.0.1:0".to_string());
+        client.command_has_answer = false;
+        {
+            let _guard = NoAnswerGuard {
+                client: &mut client,
+            };
+        }
+        assert!(client.command_has_answer);
+    }
+
+    #[test]
+    fn no_answer_guard_restores_flag_on_panic() {
+        use super::NoAnswerGuard;
+        use crate::ClientTLS;
+        let mut client = ClientTLS::new("127.0.0.1:0".to_string());
+        client.command_has_answer = false;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = NoAnswerGuard {
+                client: &mut client,
+            };
+            panic!("simulated handler panic");
+        }));
+
+        assert!(result.is_err());
+        assert!(client.command_has_answer);
+    }
+
     use crate::ClientTLS;
     use crate::Error;
 
