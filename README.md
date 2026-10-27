@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.set_domain("example.org".to_string());
     
     // For self-signed certs in development only:
-    // client.set_accept_invalid_certs(true);
+    // client.danger_accept_invalid_certs(true);
 
     let response = client.handle_message(1, b"hello").await?;
     println!("Response: {:?}", response);
@@ -190,7 +190,7 @@ impl ClientTLS {
     pub fn new(address: String) -> Self
     pub fn set_max_buffer_size(&mut self, buffer_size: usize)
     pub fn set_command_has_answer(&mut self, command_has_answer: bool)
-    pub fn set_accept_invalid_certs(&mut self, accept_invalid_certs: bool)
+    pub fn danger_accept_invalid_certs(&mut self, accept_invalid_certs: bool)
     pub fn set_domain(&mut self, domain: String)
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig)
     pub fn set_keep_alive(&mut self, enabled: bool)

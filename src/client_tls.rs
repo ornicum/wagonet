@@ -44,7 +44,7 @@ use crate::timeout_config::{
 ///     client.set_domain("example.org".to_string());
 ///
 ///     // For self-signed certs in development only:
-///     // client.set_accept_invalid_certs(true);
+///     // client.danger_accept_invalid_certs(true);
 ///
 ///     client.set_keep_alive(true).await;
 ///     client.set_timeout_config(TimeoutConfig {
@@ -79,9 +79,18 @@ pub struct ClientTLS {
     ping_state: Arc<PingState>,
 }
 
+/// Placeholder domain assigned to a fresh `ClientTLS` when the caller has not
+/// yet called `set_domain()`. Connecting with this placeholder and strict
+/// certificate validation enabled would validate the wrong hostname, so
+/// `connect()` rejects it up front.
+const PLACEHOLDER_DOMAIN: &str = "example.org";
 impl ClientTLS {
     /// Create a new TLS client with the given address (e.g., "example.org:443").
-    /// Certificate validation is enabled by default. Call `set_domain()` before connecting.
+    ///
+    /// Certificate validation is enabled by default. The domain defaults to the
+    /// placeholder `"example.org"`; you **must** call [`set_domain`](Self::set_domain)
+    /// with the real server hostname before connecting when certificate validation
+    /// is enabled (the default), otherwise `connect()` returns an error.
     pub fn new(address: String) -> Self {
         let timeout_config = TimeoutConfig::default();
         let ping_config = crate::ping::PingConfig {
@@ -91,7 +100,7 @@ impl ClientTLS {
         Self {
             accept_invalid_certs: false,
             address,
-            domain: "example.org".to_string(),
+            domain: PLACEHOLDER_DOMAIN.to_string(),
             tls_stream: Arc::new(Mutex::new(None)),
             command_has_answer: true,
             buffer: Vec::with_capacity(DEFAULT_MAX_BUFFER_SIZE),
@@ -120,15 +129,23 @@ impl ClientTLS {
         self.command_has_answer = command_has_answer;
     }
 
+    /// **DANGER** Disables ALL certificate validation. Never use in production; local testing with self-signed certs only.
+    ///
     /// Allow invalid TLS certificates (self-signed, expired, wrong host).
-    /// **Only for development/testing!** Default is `false` (strict validation).
-    pub fn set_accept_invalid_certs(&mut self, accept_invalid_certs: bool) {
+    /// Default is `false` (strict validation).
+    pub fn danger_accept_invalid_certs(&mut self, accept_invalid_certs: bool) {
         self.accept_invalid_certs = accept_invalid_certs;
     }
 
     /// Set the domain name for SNI and certificate verification.
+    ///
     /// Must match the server's certificate CommonName or SAN.
-    /// Required for certificate validation to work correctly.
+    ///
+    /// **Mandatory when certificate validation is enabled** (the default): a fresh
+    /// `ClientTLS` starts with the placeholder domain `"example.org"`, and
+    /// [`connect`](Self::connect) will return [`Error::Config`](crate::Error::Config)
+    /// before any network I/O if `set_domain` has not been called and
+    /// [`danger_accept_invalid_certs`](Self::danger_accept_invalid_certs) is not set.
     pub fn set_domain(&mut self, domain: String) {
         self.domain = domain;
     }
@@ -173,65 +190,84 @@ impl ClientTLS {
     }
 
     /// Explicitly establish a TLS connection with retry logic.
+    ///
     /// Retries up to 10 times with 1s delay between attempts.
     /// Called automatically by `handle_message` if not already connected.
+    ///
+    /// **Domain required:** if `self.domain` is still the placeholder
+    /// `"example.org"` (i.e. [`set_domain`](Self::set_domain) was never called)
+    /// and certificate validation is enabled, this returns
+    /// [`Error::Config`](crate::Error::Config) immediately, before any network I/O.
+    /// Call [`danger_accept_invalid_certs`](Self::danger_accept_invalid_certs)(true)
+    /// to bypass this check for local testing with self-signed certs.
     pub async fn connect(&mut self) -> Result<()> {
-        let mut connector = NativeTlsConnector::builder();
-        connector.danger_accept_invalid_certs(self.accept_invalid_certs);
-        let connector = connector.build()?;
-        let connector = TlsConnector::from(connector);
-        let mut tries: u8 = 0;
-        while tries < DEFAULT_MAX_CONNECT_RETRIES {
-            match tokio::time::timeout(
-                self.timeout_config.connect,
-                TcpStream::connect(&self.address),
-            )
-            .await
-            {
-                Ok(Ok(stream)) => {
-                    if self.keep_alive {
-                        let sock_ref = SockRef::from(&stream);
-                        if let Some(ka) = self.timeout_config.keep_alive.as_ref() {
-                            let tcp_keepalive = socket2::TcpKeepalive::new()
-                                .with_time(ka.time)
-                                .with_interval(ka.interval);
-                            if let Err(e) = sock_ref.set_tcp_keepalive(&tcp_keepalive) {
-                                warn!(
-                                    "Failed to set TCP keepalive: {}. Probes may not work as expected.",
-                                    e
-                                );
-                            }
-                        } else {
-                            let _ = sock_ref.set_keepalive(true);
-                        }
-                    }
-                    let tls_stream = connector.connect(self.domain.as_str(), stream).await?;
-                    *self.tls_stream.lock().await = Some(tls_stream);
+        if self.domain == PLACEHOLDER_DOMAIN && !self.accept_invalid_certs {
+            return Err(crate::Error::Config(
+                "TLS domain not set: call set_domain() before connecting".into(),
+            ));
+        }
 
-                    // Start ping task if keep_alive is enabled
-                    if self.keep_alive && self.ping_state.is_enabled().await {
-                        self.ping_state
-                            .clone()
-                            .start_ping_task(self.tls_stream.clone())
-                            .await;
+        let connect_total = self.timeout_config.connect_total;
+        tokio::time::timeout(connect_total, async {
+            let mut connector = NativeTlsConnector::builder();
+            connector.danger_accept_invalid_certs(self.accept_invalid_certs);
+            let connector = connector.build()?;
+            let connector = TlsConnector::from(connector);
+            let mut tries: u8 = 0;
+            while tries < DEFAULT_MAX_CONNECT_RETRIES {
+                match tokio::time::timeout(
+                    self.timeout_config.connect,
+                    TcpStream::connect(&self.address),
+                )
+                .await
+                {
+                    Ok(Ok(stream)) => {
+                        if self.keep_alive {
+                            let sock_ref = SockRef::from(&stream);
+                            if let Some(ka) = self.timeout_config.keep_alive.as_ref() {
+                                let tcp_keepalive = socket2::TcpKeepalive::new()
+                                    .with_time(ka.time)
+                                    .with_interval(ka.interval);
+                                if let Err(e) = sock_ref.set_tcp_keepalive(&tcp_keepalive) {
+                                    warn!(
+                                        "Failed to set TCP keepalive: {}. Probes may not work as expected.",
+                                        e
+                                    );
+                                }
+                            } else {
+                                let _ = sock_ref.set_keepalive(true);
+                            }
+                        }
+                        let tls_stream = connector.connect(self.domain.as_str(), stream).await?;
+                        *self.tls_stream.lock().await = Some(tls_stream);
+
+                        // Start ping task if keep_alive is enabled
+                        if self.keep_alive && self.ping_state.is_enabled().await {
+                            self.ping_state
+                                .clone()
+                                .start_ping_task(self.tls_stream.clone())
+                                .await;
+                        }
+                        return Ok(());
                     }
-                    return Ok(());
+                    Ok(Err(e)) => {
+                        error!("Connection error: {e}");
+                    }
+                    Err(_) => {
+                        error!("Connection timeout");
+                    }
                 }
-                Ok(Err(e)) => {
-                    error!("Connection error: {e}");
-                }
-                Err(_) => {
-                    error!("Connection timeout");
-                }
+                tokio::time::sleep(DEFAULT_CONNECT_RETRY_DELAY).await;
+                tries += 1;
             }
-            tokio::time::sleep(DEFAULT_CONNECT_RETRY_DELAY).await;
-            tries += 1;
-        }
-        if self.tls_stream.lock().await.is_none() && tries >= DEFAULT_MAX_CONNECT_RETRIES {
-            error!("Connection error, max retries reached");
-            return Err("Connection error, max retries reached".into());
-        }
-        Ok(())
+            if self.tls_stream.lock().await.is_none() && tries >= DEFAULT_MAX_CONNECT_RETRIES {
+                error!("Connection error, max retries reached");
+                return Err("Connection error, max retries reached".into());
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| crate::Error::Timeout("connect total deadline exceeded".into()))?
     }
     /// Gracefully close the TLS connection.
     /// Sends shutdown and clears the internal stream.
@@ -548,5 +584,16 @@ mod tests {
         let decoded = RequestHeader::decode(&mut slice, 1024).unwrap();
         assert_eq!(decoded.command, Command::Ping.into());
         assert_eq!(decoded.data_size, 0);
+    }
+    use crate::ClientTLS;
+    use crate::Error;
+
+    #[tokio::test]
+    async fn connect_without_domain_returns_config_error() {
+        // Fresh client has placeholder domain; connect must fail before any
+        // network I/O when certificate validation is enabled.
+        let mut client = ClientTLS::new("127.0.0.1:1".to_string());
+        let result = client.connect().await;
+        assert!(matches!(result, Err(Error::Config(_))));
     }
 }

@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Client: keep_alive=true, ping_interval=100ms (much less than server's 500ms)
     let mut client = ClientTLS::new(addr.clone());
-    client.set_accept_invalid_certs(true); // Accept self-signed cert
+    client.danger_accept_invalid_certs(true); // Accept self-signed cert
     client.set_domain("example.org".to_string());
     client.set_keep_alive(true).await;
     client

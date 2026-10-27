@@ -157,7 +157,7 @@ async fn test_tls_transport_success() {
         .await;
 
     let mut client = ClientTLS::new(addr.to_string());
-    client.set_accept_invalid_certs(true);
+    client.danger_accept_invalid_certs(true);
     client.set_domain("example.org".to_string());
 
     let response = client.handle_message(77, b"secure hello").await.unwrap();

@@ -20,7 +20,8 @@ pub const DEFAULT_PING_INTERVAL: Duration = Duration::from_secs(30);
 pub const DEFAULT_MAX_CONNECT_RETRIES: u8 = 10;
 /// Default delay between connect retries.
 pub const DEFAULT_CONNECT_RETRY_DELAY: Duration = Duration::from_secs(1);
-/// Subtraction for ping interval clamping (read_header - 1s).
+/// Default overall deadline for the connect retry loop.
+pub const DEFAULT_CONNECT_TOTAL_TIMEOUT: Duration = Duration::from_secs(30);
 pub const PING_CLAMP_SUBTRACTION: Duration = Duration::from_secs(1);
 /// Threshold for halving read_header instead of subtracting.
 pub const PING_CLAMP_HALVE_THRESHOLD: Duration = Duration::from_millis(200);
@@ -33,6 +34,9 @@ pub struct TimeoutConfig {
     pub read_data: Duration,
     pub write: Duration,
     pub keep_alive: Option<KeepAliveConfig>,
+    /// Overall deadline for the connect retry loop.
+    /// Default: 30 seconds.
+    pub connect_total: Duration,
     /// Interval for sending ping requests to keep the connection alive.
     /// Default: 30 seconds. Must be less than read_header to be effective.
     pub ping_interval: Duration,
@@ -61,6 +65,7 @@ impl Default for TimeoutConfig {
             read_data: DEFAULT_READ_DATA_TIMEOUT,
             write: DEFAULT_WRITE_TIMEOUT,
             keep_alive: None,
+            connect_total: DEFAULT_CONNECT_TOTAL_TIMEOUT,
             ping_interval: DEFAULT_PING_INTERVAL,
         }
     }
@@ -70,6 +75,11 @@ impl TimeoutConfig {
     /// Validate that ping_interval < read_header.
     /// Returns an error if the invariant is violated.
     pub fn validate(&self) -> Result<()> {
+        if self.connect_total == Duration::ZERO {
+            return Err(Error::Config(
+                "connect_total must be greater than zero".to_string(),
+            ));
+        }
         if self.ping_interval >= self.read_header {
             return Err(Error::Config(format!(
                 "TimeoutConfig invariant violated: ping_interval ({:?}) >= read_header ({:?}). \

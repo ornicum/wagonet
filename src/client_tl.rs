@@ -145,58 +145,63 @@ impl ClientTL {
     /// Retries up to 10 times with 1s delay between attempts.
     /// Called automatically by `handle_message` if not already connected.
     pub async fn connect(&mut self) -> Result<()> {
-        let mut tries: u8 = 0;
-        while tries < DEFAULT_MAX_CONNECT_RETRIES {
-            match tokio::time::timeout(
-                self.timeout_config.connect,
-                TcpStream::connect(&self.address),
-            )
-            .await
-            {
-                Ok(Ok(stream)) => {
-                    if self.keep_alive {
-                        let sock_ref = SockRef::from(&stream);
-                        if let Some(ka) = self.timeout_config.keep_alive.as_ref() {
-                            let tcp_keepalive = socket2::TcpKeepalive::new()
-                                .with_time(ka.time)
-                                .with_interval(ka.interval);
-                            if let Err(e) = sock_ref.set_tcp_keepalive(&tcp_keepalive) {
-                                warn!(
-                                    "Failed to set TCP keepalive: {}. Probes may not work as expected.",
-                                    e
-                                );
+        let connect_total = self.timeout_config.connect_total;
+        tokio::time::timeout(connect_total, async {
+            let mut tries: u8 = 0;
+            while tries < DEFAULT_MAX_CONNECT_RETRIES {
+                match tokio::time::timeout(
+                    self.timeout_config.connect,
+                    TcpStream::connect(&self.address),
+                )
+                .await
+                {
+                    Ok(Ok(stream)) => {
+                        if self.keep_alive {
+                            let sock_ref = SockRef::from(&stream);
+                            if let Some(ka) = self.timeout_config.keep_alive.as_ref() {
+                                let tcp_keepalive = socket2::TcpKeepalive::new()
+                                    .with_time(ka.time)
+                                    .with_interval(ka.interval);
+                                if let Err(e) = sock_ref.set_tcp_keepalive(&tcp_keepalive) {
+                                    warn!(
+                                        "Failed to set TCP keepalive: {}. Probes may not work as expected.",
+                                        e
+                                    );
+                                }
+                            } else {
+                                let _ = sock_ref.set_keepalive(true);
                             }
-                        } else {
-                            let _ = sock_ref.set_keepalive(true);
                         }
-                    }
-                    error!("CLIENT: New TCP connection established");
-                    *self.stream.lock().await = Some(stream);
+                        error!("CLIENT: New TCP connection established");
+                        *self.stream.lock().await = Some(stream);
 
-                    // Start ping task if keep_alive is enabled
-                    if self.keep_alive && self.ping_state.is_enabled().await {
-                        self.ping_state
-                            .clone()
-                            .start_ping_task(self.stream.clone())
-                            .await;
+                        // Start ping task if keep_alive is enabled
+                        if self.keep_alive && self.ping_state.is_enabled().await {
+                            self.ping_state
+                                .clone()
+                                .start_ping_task(self.stream.clone())
+                                .await;
+                        }
+                        return Ok(());
                     }
-                    return Ok(());
+                    Ok(Err(e)) => {
+                        error!("Connection error: {e}");
+                    }
+                    Err(_) => {
+                        error!("Connection timeout");
+                    }
                 }
-                Ok(Err(e)) => {
-                    error!("Connection error: {e}");
-                }
-                Err(_) => {
-                    error!("Connection timeout");
-                }
+                sleep(DEFAULT_CONNECT_RETRY_DELAY).await;
+                tries += 1;
             }
-            sleep(DEFAULT_CONNECT_RETRY_DELAY).await;
-            tries += 1;
-        }
-        if self.stream.lock().await.is_none() && tries >= DEFAULT_MAX_CONNECT_RETRIES {
-            error!("Connection error, max retries reached");
-            return Err("Connection error, max retries reached".into());
-        }
-        Ok(())
+            if self.stream.lock().await.is_none() && tries >= DEFAULT_MAX_CONNECT_RETRIES {
+                error!("Connection error, max retries reached");
+                return Err("Connection error, max retries reached".into());
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| Error::Timeout("connect total deadline exceeded".into()))?
     }
 
     /// Gracefully close the TCP connection.
@@ -716,5 +721,29 @@ mod tests {
             "Drop took too long: {:?}",
             elapsed
         );
+    }
+
+    #[tokio::test]
+    async fn connect_total_deadline_exceeds() {
+        use std::time::Instant;
+        // connect_total = 200 ms against an unresponsive address: the overall
+        // deadline must fire before per-attempt retries are exhausted.
+        let mut client = ClientTL::new("10.255.255.1:1".to_string());
+        client
+            .set_timeout_config(TimeoutConfig {
+                connect_total: Duration::from_millis(200),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        let start = Instant::now();
+        let result = client.connect().await;
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "connect took too long: {:?}",
+            elapsed
+        );
+        assert_matches!(result, Err(Error::Timeout(_)));
     }
 }

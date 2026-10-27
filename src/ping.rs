@@ -106,39 +106,41 @@ impl PingState {
         self.in_flight.try_lock().ok()
     }
 
+    #[allow(dead_code)]
     /// Get a reference to the last activity timestamp mutex.
     /// Allows reading the last activity time without modifying it.
-    pub fn last_activity(&self) -> Arc<Mutex<Instant>> {
+    pub(crate) fn last_activity(&self) -> Arc<Mutex<Instant>> {
         self.last_activity.clone()
     }
 
+    #[allow(dead_code)]
     /// Get a reference to the in-flight mutex.
     /// Allows acquiring the lock for coordinating with ping.
-    pub fn in_flight(&self) -> Arc<Mutex<()>> {
+    pub(crate) fn in_flight(&self) -> Arc<Mutex<()>> {
         self.in_flight.clone()
     }
 
     /// Get a reference to the ping configuration mutex.
     /// Allows reading/modifying ping configuration.
-    pub fn config(&self) -> Arc<Mutex<PingConfig>> {
+    pub(crate) fn config(&self) -> Arc<Mutex<PingConfig>> {
         self.config.clone()
     }
 
     /// Get a reference to the timeout configuration mutex.
     /// Allows reading/modifying timeout configuration.
-    pub fn timeout_config(&self) -> Arc<Mutex<TimeoutConfig>> {
+    pub(crate) fn timeout_config(&self) -> Arc<Mutex<TimeoutConfig>> {
         self.timeout_config.clone()
     }
 
     /// Get a reference to the should_stop flag mutex.
     /// Allows signaling the ping task to stop.
-    pub fn should_stop(&self) -> Arc<Mutex<bool>> {
+    pub(crate) fn should_stop(&self) -> Arc<Mutex<bool>> {
         self.should_stop.clone()
     }
 
     /// Get a reference to the task handle mutex.
     /// Allows managing the background task handle.
-    pub fn task_handle(&self) -> &Mutex<Option<tokio::task::JoinHandle<()>>> {
+    pub(crate) fn task_handle(&self) -> &Mutex<Option<tokio::task::JoinHandle<()>>> {
         &self.task_handle
     }
 
@@ -324,18 +326,11 @@ where
         Ok(Ok(_)) => {
             // Got 4 more bytes - old server response
             let data_size = u32::from_be_bytes(size_buf);
-            if data_size > 0 {
-                // Read and discard payload (shouldn't happen for ping, but handle gracefully)
-                let mut payload = vec![0u8; data_size as usize];
-                reader.read_exact(&mut payload).await.map_err(|e| {
-                    if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                        Error::ConnectionClosed
-                    } else {
-                        Error::from(e)
-                    }
-                })?;
+            if data_size != 0 {
+                return Err(crate::Error::Protocol(
+                    "ping response must have data_size 0".into(),
+                ));
             }
-            // data_size == 0: no payload
             Ok(())
         }
         Ok(Err(e)) => Err(e.into()), // IO error
@@ -348,10 +343,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{PingConfig, PingState};
+    use super::{PingConfig, PingState, receive_ping_response_impl};
     use crate::protocol_structs::Command;
     use crate::request_header::RequestHeader;
     use crate::timeout_config::TimeoutConfig;
+    use std::time::Duration;
+    use tokio::io::AsyncWriteExt;
 
     #[test]
     fn ping_header_codec() {
@@ -382,5 +379,16 @@ mod tests {
         // Test take_task_handle (should return None initially)
         let handle = ping_state.take_task_handle().await;
         assert!(handle.is_none());
+    }
+
+    #[tokio::test]
+    async fn ping_old_format_nonzero_data_size_is_rejected() {
+        // Malicious old-format ping response: status=1 + data_size=0xFFFFFFFF
+        let (mut rx, mut tx) = tokio::io::duplex(64);
+        tx.write_all(&[0x01, 0xFF, 0xFF, 0xFF, 0xFF])
+            .await
+            .expect("duplex write");
+        let result = receive_ping_response_impl(&mut rx, Duration::from_secs(60)).await;
+        assert!(matches!(result, Err(crate::Error::Protocol(_))));
     }
 }

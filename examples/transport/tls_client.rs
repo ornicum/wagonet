@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     client.set_domain("localhost".to_string());
 
     // For self-signed certificates in development ONLY:
-    // client.set_accept_invalid_certs(true);
+    // client.danger_accept_invalid_certs(true);
 
     // Enable keep-alive
     client.set_keep_alive(true).await;
