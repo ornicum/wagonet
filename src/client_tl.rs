@@ -97,13 +97,30 @@ impl ClientTL {
 
     /// Set maximum buffer size for incoming responses (default: 10 MB).
     /// Values <= 0 reset to default.
-    pub fn set_max_buffer_size(&mut self, buffer_size: usize) {
-        self.max_buffer_size = if buffer_size > 0 {
+    ///
+    /// The buffer is reserved in a single allocation when this is called.
+    /// The limit is committed only after a successful reservation; on `Err`
+    /// the previous limit stays active and the buffer capacity is unchanged
+    /// (`try_reserve` leaves the `Vec` untouched on failure). Therefore every
+    /// later `resize` within the committed limit is served from reserved
+    /// capacity and cannot allocate.
+    ///
+    /// Returns `Err(Error::Config)` when the reservation cannot be satisfied,
+    /// leaving the object in its previous state.
+    pub fn set_max_buffer_size(&mut self, buffer_size: usize) -> Result<()> {
+        let limit = if buffer_size > 0 {
             buffer_size
         } else {
             DEFAULT_MAX_BUFFER_SIZE
         };
-        self.buffer.reserve(self.max_buffer_size);
+        let additional = limit.saturating_sub(self.buffer.len());
+        if let Err(e) = self.buffer.try_reserve(additional) {
+            return Err(crate::Error::Config(format!(
+                "max_buffer_size {limit} cannot be reserved on this system: {e}"
+            )));
+        }
+        self.max_buffer_size = limit;
+        Ok(())
     }
 
     /// Enable/disable no-answer mode (fire-and-forget).
@@ -547,6 +564,23 @@ mod tests {
         let decoded = RequestHeader::decode(&mut slice, 1024).unwrap();
         assert_eq!(decoded.command, Command::Ping.into());
         assert_eq!(decoded.data_size, 0);
+    }
+
+    #[test]
+    fn set_max_buffer_size_usize_max_returns_error() {
+        let mut client = ClientTL::new("127.0.0.1:0".to_string());
+
+        // usize::MAX cannot be reserved; object must not be poisoned.
+        let err = client.set_max_buffer_size(usize::MAX).unwrap_err();
+        assert_matches!(err, Error::Config(_));
+
+        // State was not poisoned: a reasonable size still works.
+        assert!(client.set_max_buffer_size(1024 * 1024).is_ok());
+        assert_eq!(client.max_buffer_size, 1024 * 1024);
+
+        // Values <= 0 reset to the default limit.
+        assert!(client.set_max_buffer_size(0).is_ok());
+        assert_eq!(client.max_buffer_size, DEFAULT_MAX_BUFFER_SIZE);
     }
 
     async fn run_mock_server_tl(

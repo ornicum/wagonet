@@ -70,6 +70,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timeout_config.validate()?;  // must check result
   client.set_timeout_config(config).await?;
   ```
+- **`set_max_buffer_size()` return type changed**: `()` → `Result<()>`. Now returns `Error::Config` when the buffer reservation cannot be satisfied (e.g. `usize::MAX`), instead of panicking. The object keeps its previous limit on failure.
+
+  **Migration:**
+
+  ```rust
+  // OLD CODE (does not compile):
+  client.set_max_buffer_size(usize::MAX);
+
+  // NEW CODE:
+  client.set_max_buffer_size(usize::MAX)?; // or .expect(...)
+  ```
 
 ### Added
 

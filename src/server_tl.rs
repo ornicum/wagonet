@@ -56,13 +56,30 @@ impl ServerTL {
 
     /// Set maximum buffer size for incoming request data (default: 10 MB).
     /// Values <= 0 reset to default.
-    pub fn set_max_buffer_size(&mut self, max_buffer_size: usize) {
-        self.max_buffer_size = if max_buffer_size > 0 {
+    ///
+    /// The buffer is reserved in a single allocation when this is called.
+    /// The limit is committed only after a successful reservation; on `Err`
+    /// the previous limit stays active and the buffer capacity is unchanged
+    /// (`try_reserve` leaves the `Vec` untouched on failure). Therefore every
+    /// later `resize` within the committed limit is served from reserved
+    /// capacity and cannot allocate.
+    ///
+    /// Returns `Err(Error::Config)` when the reservation cannot be satisfied,
+    /// leaving the object in its previous state.
+    pub fn set_max_buffer_size(&mut self, max_buffer_size: usize) -> Result<()> {
+        let limit = if max_buffer_size > 0 {
             max_buffer_size
         } else {
             DEFAULT_MAX_BUFFER_SIZE
         };
-        self.buffer.reserve(max_buffer_size);
+        let additional = limit.saturating_sub(self.buffer.len());
+        if let Err(e) = self.buffer.try_reserve(additional) {
+            return Err(crate::Error::Config(format!(
+                "max_buffer_size {limit} cannot be reserved on this system: {e}"
+            )));
+        }
+        self.max_buffer_size = limit;
+        Ok(())
     }
 
     /// Set timeout configuration (read_header, read_data, write).
@@ -287,6 +304,7 @@ mod tests {
     use crate::request_header::RequestHeader;
     use crate::response_header::ResponseHeader;
     use crate::timeout_config::TimeoutConfig;
+    use std::assert_matches;
     use std::time::Instant;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
@@ -483,5 +501,27 @@ mod tests {
             "read_command took too long: {:?}",
             elapsed
         );
+    }
+
+    #[tokio::test]
+    async fn set_max_buffer_size_usize_max_returns_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _client = TcpStream::connect(addr).await.unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let (reader, writer) = stream.into_split();
+        let mut server = ServerTL::new(reader, writer);
+
+        // usize::MAX cannot be reserved; object must not be poisoned.
+        let err = server.set_max_buffer_size(usize::MAX).unwrap_err();
+        assert_matches!(err, Error::Config(_));
+
+        // State was not poisoned: a reasonable size still works.
+        assert!(server.set_max_buffer_size(1024 * 1024).is_ok());
+        assert_eq!(server.max_buffer_size, 1024 * 1024);
+
+        // Values <= 0 reset to the default limit.
+        assert!(server.set_max_buffer_size(0).is_ok());
+        assert_eq!(server.max_buffer_size, DEFAULT_MAX_BUFFER_SIZE);
     }
 }

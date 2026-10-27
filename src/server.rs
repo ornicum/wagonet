@@ -83,6 +83,10 @@ impl Server {
     /// `ProtocolCommandHandler` factory must be configured via
     /// `Self::set_protocol_command_handler_factory`
     /// before `run` is called.
+    ///
+    /// The size is stored as-is and validated per connection when the handler
+    /// starts: an unsatisfiable value fails that connection with
+    /// `Error::Config` rather than panicking.
     pub fn new(address: String, max_buffer_size: usize) -> Server {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         Self {

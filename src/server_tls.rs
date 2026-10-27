@@ -45,13 +45,30 @@ impl<'a> ServerTLS<'a> {
 
     /// Set maximum buffer size for incoming request data (default: 10 MB).
     /// Values <= 0 reset to default.
-    pub fn set_max_buffer_size(&mut self, buffer_size: usize) {
-        self.max_buffer_size = if buffer_size > 0 {
+    ///
+    /// The buffer is reserved in a single allocation when this is called.
+    /// The limit is committed only after a successful reservation; on `Err`
+    /// the previous limit stays active and the buffer capacity is unchanged
+    /// (`try_reserve` leaves the `Vec` untouched on failure). Therefore every
+    /// later `resize` within the committed limit is served from reserved
+    /// capacity and cannot allocate.
+    ///
+    /// Returns `Err(Error::Config)` when the reservation cannot be satisfied,
+    /// leaving the object in its previous state.
+    pub fn set_max_buffer_size(&mut self, buffer_size: usize) -> Result<()> {
+        let limit = if buffer_size > 0 {
             buffer_size
         } else {
             DEFAULT_MAX_BUFFER_SIZE
         };
-        self.buffer.reserve(self.max_buffer_size);
+        let additional = limit.saturating_sub(self.buffer.len());
+        if let Err(e) = self.buffer.try_reserve(additional) {
+            return Err(crate::Error::Config(format!(
+                "max_buffer_size {limit} cannot be reserved on this system: {e}"
+            )));
+        }
+        self.max_buffer_size = limit;
+        Ok(())
     }
 
     /// Set timeout configuration (read_header, read_data, write).

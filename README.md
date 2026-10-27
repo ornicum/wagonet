@@ -174,7 +174,7 @@ When `data_size == 0`, the header is only 1 byte (just the status byte).
 ```rust
 impl ClientTL {
     pub fn new(address: String) -> Self
-    pub fn set_max_buffer_size(&mut self, buffer_size: usize)
+    pub fn set_max_buffer_size(&mut self, buffer_size: usize) -> Result<()>
     pub fn set_command_has_answer(&mut self, command_has_answer: bool)
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig)
     pub fn set_keep_alive(&mut self, enabled: bool)
@@ -190,7 +190,7 @@ impl ClientTL {
 ```rust
 impl ClientTLS {
     pub fn new(address: String) -> Self
-    pub fn set_max_buffer_size(&mut self, buffer_size: usize)
+    pub fn set_max_buffer_size(&mut self, buffer_size: usize) -> Result<()>
     pub fn set_command_has_answer(&mut self, command_has_answer: bool)
     pub fn danger_accept_invalid_certs(&mut self, accept_invalid_certs: bool)
     pub fn set_domain(&mut self, domain: String)
@@ -208,7 +208,7 @@ impl ClientTLS {
 ```rust
 impl<'a> ServerTL<'a> {
     pub fn new(reader: ReadHalf<'a>, writer: WriteHalf<'a>) -> Self
-    pub fn set_max_buffer_size(&mut self, max_buffer_size: usize)
+    pub fn set_max_buffer_size(&mut self, max_buffer_size: usize) -> Result<()>
     pub fn set_timeout_config(&mut self, timeout_config: TimeoutConfig)
     pub async fn read_command(&mut self) -> Result<Option<(u32, usize)>>
     pub async fn receive_data(&mut self, buf_size: usize) -> Result<Vec<u8>>

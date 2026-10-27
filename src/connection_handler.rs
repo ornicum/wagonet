@@ -51,7 +51,7 @@ impl<'a> ConnectionHandler<'a> {
             match tls_acceptor.accept(stream).await {
                 Ok(tls_stream) => {
                     let mut tls = ServerTLS::new(tls_stream);
-                    tls.set_max_buffer_size(self.max_buffer_size);
+                    tls.set_max_buffer_size(self.max_buffer_size)?;
                     Box::new(tls)
                 }
                 Err(e) => {
@@ -62,7 +62,7 @@ impl<'a> ConnectionHandler<'a> {
         } else {
             let (reader, writer) = stream.into_split();
             let mut tl = ServerTL::new(reader, writer);
-            tl.set_max_buffer_size(self.max_buffer_size);
+            tl.set_max_buffer_size(self.max_buffer_size)?;
             info!("Run protocol handler for {}", self.peer);
             Box::new(tl)
         };

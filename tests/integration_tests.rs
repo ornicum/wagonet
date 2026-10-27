@@ -83,7 +83,9 @@ async fn test_tcp_transport_buffer_overflow() {
     let (server_handle, server_shutdown, addr) = spawn_server_with_shutdown(|stream| async move {
         let (reader, writer) = stream.into_split();
         let mut server = ServerTL::new(reader, writer);
-        server.set_max_buffer_size(5);
+        server
+            .set_max_buffer_size(5)
+            .expect("failed to set max buffer size");
 
         let res = server.read_command().await;
         assert!(res.is_err());
