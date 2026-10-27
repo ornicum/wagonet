@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tracing::error;
+use tracing::warn;
 
 use crate::Error;
 use crate::Result;
@@ -104,12 +104,12 @@ impl ServerTL {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
                 if !e.is_disconnect() {
-                    error!("Receiving request header error: {e}");
+                    warn!("Receiving request header error: {e}");
                 }
                 return Err(e);
             }
             Err(_) => {
-                error!("Request header receive timeout");
+                warn!("Request header receive timeout");
                 return Err("Timeout waiting for request header".into());
             }
         }
@@ -135,7 +135,7 @@ impl ServerTL {
         if data_size > self.max_buffer_size {
             self.send_response_header(7, 0, true, self.timeout_config.write)
                 .await?;
-            error!("Request rejected: data size {data_size} exceeds MAX_BUFFER_SIZE");
+            warn!("Request rejected: data size exceeds max buffer size");
             return Err("Data size exceeds maximum allowed buffer size".into());
         }
         self.send_response_header(1, 0, true, self.timeout_config.write)
@@ -157,11 +157,11 @@ impl ServerTL {
         match tokio::time::timeout(timeout, self.writer.write_all(&self.buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Sending response header error: {e}");
+                warn!("Sending response header error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Sending response header timeout");
+                warn!("Sending response header timeout");
                 return Err("Sending response header timeout".into());
             }
         }
@@ -183,11 +183,11 @@ impl ServerTL {
         {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Receiving response header error: {e}");
+                warn!("Receiving response header error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Response header receive timeout");
+                warn!("Response header receive timeout");
                 return Err("Timeout waiting for response header".into());
             }
         }
@@ -226,7 +226,7 @@ impl ServerTL {
                 });
             }
             Err(_) => {
-                error!("Data receive timeout");
+                warn!("Data receive timeout");
                 return Err("Timeout waiting for data".into());
             }
         }
@@ -262,11 +262,11 @@ impl ServerTL {
             {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => {
-                    error!("Sending data error: {e}");
+                    warn!("Sending data error: {e}");
                     return Err(e.into());
                 }
                 Err(_) => {
-                    error!("Sending data timeout");
+                    warn!("Sending data timeout");
                     return Err("Timeout sending data".into());
                 }
             }

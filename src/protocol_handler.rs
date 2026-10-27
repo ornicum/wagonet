@@ -2,7 +2,6 @@ use crate::Result;
 use crate::protocol_command_handler::ProtocolCommandHandler;
 use crate::protocol_structs::ResponseStatus;
 use crate::transport::Transport;
-use tracing::error;
 
 /// Drives the request-response protocol over an established [`Transport`].
 ///
@@ -46,30 +45,21 @@ impl ProtocolHandler {
 
         match self.command_handler.run(command, data).await {
             Ok((status, response_data)) => {
-                if let Err(e) = self
-                    .transport
+                self.transport
                     .send_response(status.into(), Some(&response_data))
-                    .await
-                {
-                    error!("Error sending response: {}", e);
-                    return Err(e);
-                }
+                    .await?;
 
                 if status == ResponseStatus::Finish {
                     return Ok(false);
                 }
             }
-            Err(e) => {
-                error!("Command handler error: {}", e);
+            Err(_) => {
                 // Send an empty payload instead of `None` so that clients in
                 // answer mode receive a full 5-byte header and stay in sync.
-                if let Err(send_err) = self
+                let _ = self
                     .transport
                     .send_response(ResponseStatus::Error.into(), Some(&[]))
-                    .await
-                {
-                    error!("Error sending error response: {}", send_err);
-                }
+                    .await;
                 // Application errors do not terminate the connection.
             }
         }

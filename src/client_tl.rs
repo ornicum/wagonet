@@ -268,11 +268,11 @@ impl ClientTL {
         match tokio::time::timeout(timeout, stream.write_all(buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Sending request header error: {e}");
+                warn!("Sending request header error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Sending request header timeout");
+                warn!("Sending request header timeout");
                 return Err(Error::Timeout("Sending request header".to_string()));
             }
         }
@@ -297,11 +297,11 @@ impl ClientTL {
         match tokio::time::timeout(timeout, stream.write_all(buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Sending response header error: {e}");
+                warn!("Sending response header error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Sending response header timeout");
+                warn!("Sending response header timeout");
                 return Err(Error::Timeout("Sending response header".to_string()));
             }
         }
@@ -325,11 +325,11 @@ impl ClientTL {
         match tokio::time::timeout(read_header_timeout, stream.read_exact(buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Receiving response header error: {e}");
+                warn!("Receiving response header error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Response header receive timeout");
+                warn!("Response header receive timeout");
                 return Err(Error::Timeout("Waiting for response header".to_string()));
             }
         }
@@ -378,11 +378,11 @@ impl ClientTL {
         match tokio::time::timeout(timeout_config.write, stream.write_all(data)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Sending message error: {e}");
+                warn!("Sending message error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Sending message timeout");
+                warn!("Sending message timeout");
                 return Err(Error::Timeout("Sending message data".to_string()));
             }
         }
@@ -433,14 +433,19 @@ impl ClientTL {
         }
 
         buffer.resize(data_size, 0);
-        match tokio::time::timeout(timeout_config.read_data, stream.read_exact(buffer)).await {
+        match tokio::time::timeout(
+            timeout_config.read_data,
+            crate::common::read_exact_or_closed(&mut *stream, buffer),
+        )
+        .await
+        {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Receiving message error: {e}");
-                return Err(e.into());
+                warn!("Receiving message error: {e}");
+                return Err(e);
             }
             Err(_) => {
-                error!("Message receive timeout");
+                warn!("Message receive timeout");
                 return Err(Error::Timeout("Waiting for message data".to_string()));
             }
         }
@@ -581,6 +586,56 @@ mod tests {
         // Values <= 0 reset to the default limit.
         assert!(client.set_max_buffer_size(0).is_ok());
         assert_eq!(client.max_buffer_size, DEFAULT_MAX_BUFFER_SIZE);
+    }
+
+    #[tokio::test]
+    async fn receive_message_mid_frame_eof_returns_connection_closed_mid_frame() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let server_handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+
+            // Read request header (8 bytes: command u32 BE + data_size u32 BE)
+            let mut req_hdr = [0u8; 8];
+            stream.read_exact(&mut req_hdr).await.unwrap();
+            let data_size =
+                u32::from_be_bytes([req_hdr[4], req_hdr[5], req_hdr[6], req_hdr[7]]) as usize;
+
+            // Send ACK header (status=1, default encoding = 1 byte) BEFORE
+            // reading payload — client waits for ACK before sending payload.
+            stream.write_all(&[1u8]).await.unwrap();
+            stream.flush().await.unwrap();
+
+            // Read request payload
+            if data_size > 0 {
+                let mut req_data = vec![0u8; data_size];
+                stream.read_exact(&mut req_data).await.unwrap();
+            }
+
+            // Send response header: status=1, data_size=10 (5 bytes, non-default encoding)
+            let mut res_hdr = Vec::new();
+            res_hdr.push(1u8);
+            res_hdr.extend_from_slice(&10u32.to_be_bytes());
+            stream.write_all(&res_hdr).await.unwrap();
+
+            // Send only 5 bytes of the promised 10, then close
+            stream.write_all(b"12345").await.unwrap();
+            stream.flush().await.unwrap();
+        });
+
+        let mut client = ClientTL::new(addr.to_string());
+        let result = client.handle_message(1, b"hello").await;
+
+        let _ = server_handle.await;
+
+        assert_matches!(
+            result,
+            Err(Error::ConnectionClosedMidFrame {
+                received: 5,
+                expected: 10
+            })
+        );
     }
 
     async fn run_mock_server_tl(

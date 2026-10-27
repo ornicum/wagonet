@@ -322,11 +322,11 @@ impl ClientTLS {
         match tokio::time::timeout(timeout, stream.write_all(buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Sending request header error: {e}");
+                warn!("Sending request header error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Sending request header timeout");
+                warn!("Sending request header timeout");
                 return Err("Timeout sending request header".into());
             }
         }
@@ -351,11 +351,11 @@ impl ClientTLS {
         match tokio::time::timeout(timeout, stream.write_all(buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Sending response header error: {e}");
+                warn!("Sending response header error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Sending response header timeout");
+                warn!("Sending response header timeout");
                 return Err("Timeout sending response header".into());
             }
         }
@@ -379,11 +379,11 @@ impl ClientTLS {
         match tokio::time::timeout(read_header_timeout, stream.read_exact(buffer)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Receiving request header error: {e}");
+                warn!("Receiving request header error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Response header receive timeout");
+                warn!("Response header receive timeout");
                 return Err("Timeout waiting for response header".into());
             }
         }
@@ -430,11 +430,11 @@ impl ClientTLS {
         match tokio::time::timeout(timeout_config.write, stream.write_all(data)).await {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Sending message error: {e}");
+                warn!("Sending message error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Sending message timeout");
+                warn!("Sending message timeout");
                 return Err("Timeout sending message data".into());
             }
         }
@@ -482,14 +482,19 @@ impl ClientTLS {
         }
 
         buffer.resize(data_size, 0);
-        match tokio::time::timeout(timeout_config.read_data, stream.read_exact(buffer)).await {
+        match tokio::time::timeout(
+            timeout_config.read_data,
+            crate::common::read_exact_or_closed(&mut *stream, buffer),
+        )
+        .await
+        {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => {
-                error!("Receiving message error: {e}");
+                warn!("Receiving message error: {e}");
                 return Err(e.into());
             }
             Err(_) => {
-                error!("Message receive timeout");
+                warn!("Message receive timeout");
                 return Err("Timeout waiting for message data".into());
             }
         }
