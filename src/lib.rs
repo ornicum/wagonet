@@ -45,9 +45,15 @@
 //!     Ok(())
 //! }
 //! ```
+//!
+//! ## Minimum TLS environment
+//!
+//! wagonet relies on the platform TLS stack (`native-tls` / system OpenSSL via `tokio-native-tls`); it does not vendor a TLS implementation. Minimum supported OpenSSL is **3.0.x / 1.1.1w+**. Cipher-suite and TLS-version policy follows platform defaults; wagonet does not enforce a minimum TLS version or cipher selection. A rustls migration is out of scope for 0.x (audit SM-07).
+//!
 use thiserror::Error;
 
 /// Unified error type for wagonet operations.
+
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {

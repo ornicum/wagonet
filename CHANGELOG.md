@@ -15,6 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Non-blocking Drop (HIGH)**: `PingState::stop_ping_task()` is now synchronous (was `async fn` with 5s timeout wait). `Drop` implementations for `ClientTL` and `ClientTLS` no longer block - they only set the stop flag and abort the task handle. This eliminates potential deadlock when dropping clients in async contexts.
 
+### Documentation
+
+- **Minimum TLS environment (SM-07)**: document that wagonet relies on the platform TLS stack (`native-tls` / system OpenSSL); minimum supported OpenSSL is 3.0.x / 1.1.1w+; cipher and TLS-version policy follow platform defaults; rustls migration out of scope for 0.x.
+- **PKCS#12 password zeroization (SM-08)**: document `set_secure` password handling is the caller's responsibility; the library does not zeroize caller-owned memory; recommend application-layer secret handling (e.g. `zeroize`).
+- **No protocol-level authentication/replay/sequencing (SM-09)**: document the wire protocol provides none of these guarantees of its own; they are TLS-only; applications on untrusted paths without TLS must add nonces/sequence numbers themselves.
+- **Shutdown idempotency + checked send (SM-12)**: `Server::shutdown()` now logs a `tracing::debug!` message when signaled with no active receivers instead of silently dropping; document shutdown is idempotent on `shutdown()` and `shutdown_handle()`.
+- **No-answer mode compatibility limitation (SI-09)**: document that `set_command_has_answer` / `handle_message_with_no_answer` are compatible only with servers that send no response frames at all; not compatible with wagonet's own `Server`/`ServerTL`/`ServerTLS` `send_data` path; documented limitation until a wire flag is designed.
+- **Keep-alive indefinite WONTFIX-by-design**: document the ping keep-alive intentionally holds idle connections open indefinitely with no idle cap; applications needing an idle timeout should drop the client.
 ### Refactoring
 
 - **Removed `max_data_size` from `TimeoutConfig`**: The duplicate `max_data_size` field (which duplicated `max_buffer_size` semantics) has been removed. Data size limits now use the connection's `max_buffer_size` exclusively, configurable via `set_max_buffer_size()`. This eliminates confusion where users could increase buffer size but data would still be rejected at 10 MB.

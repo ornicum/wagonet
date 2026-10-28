@@ -140,6 +140,15 @@ impl ClientTLS {
     /// Enable/disable no-answer mode (fire-and-forget).
     /// When `false`, `handle_message` returns immediately with empty `Vec<u8>`
     /// without waiting for a response header.
+    ///
+    /// **Documented limitation (audit SI-09):** no-answer mode is compatible
+    /// **only** with servers that send no response frames at all. It is **not**
+    /// compatible with wagonet's own `Server`/`ServerTL`/`ServerTLS`
+    /// `send_data` path, which always sends a response-header ACK
+    /// (`status` + `data_size`). In no-answer mode the client decodes that ACK
+    /// as a 1-byte default header, so a 5-byte ACK leaves 4 bytes in the
+    /// stream and desyncs every subsequent frame read. A wire flag to
+    /// negotiate this is not yet designed.
     pub fn set_command_has_answer(&mut self, command_has_answer: bool) {
         self.command_has_answer = command_has_answer;
     }
@@ -564,6 +573,12 @@ impl ClientTLS {
     /// Temporarily sets `command_has_answer=false`, calls `handle_message`,
     /// then restores the original setting. Returns empty `Vec<u8>` on success.
     /// Use `set_command_has_answer(false)` + `handle_message` for persistent no-answer mode.
+    ///
+    /// **Documented limitation (audit SI-09):** compatible only with servers
+    /// that send no response frames at all; **not** compatible with wagonet's
+    /// own `Server`/`ServerTL`/`ServerTLS` `send_data` path, which sends a
+    /// response-header ACK. Until a wire flag is designed, use no-answer mode
+    /// only with non-wagonet servers that never reply.
     pub async fn handle_message_with_no_answer(
         &mut self,
         command: u32,

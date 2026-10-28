@@ -115,6 +115,14 @@ impl Server {
     /// Returns an error if the identity cannot be parsed or the native TLS
     /// acceptor cannot be built (e.g. invalid password, malformed certificate).
     /// The server is left unchanged in that case.
+    ///
+    /// # Security
+    ///
+    /// PKCS#12 password handling is the caller's responsibility: the library
+    /// does not zeroize caller-owned memory after `set_secure` returns, so the
+    /// password bytes remain in the caller's `String` backing for the process
+    /// lifetime. Clear the password at the application layer once `set_secure`
+    /// has returned (e.g. with the `zeroize` crate).
     pub fn set_secure(
         &mut self,
         identity: &[u8],
@@ -167,11 +175,21 @@ impl Server {
     /// `Self::run` will return after the accept loop stops and all in-flight
     /// connections have drained (or the drain timeout has expired).
     ///
+    /// Shutdown is idempotent: calling `shutdown` multiple times, or sending
+    /// through both `shutdown` and a `shutdown_handle`, is safe; the watch
+    /// channel keeps the last value and each subscribed receiver observes the
+    /// signal once. If no receiver remains (for example `run` has already
+    /// returned and dropped `shutdown_rx`), the send failure is logged at
+    /// `tracing::debug!` level ("shutdown signaled with no active receivers")
+    /// instead of being silently dropped.
+    ///
     /// This is a convenience method that consumes the internal sender. Use
     /// `Self::shutdown_handle` when the shutdown trigger must
     /// live in a different task or component (e.g. a signal handler).
     pub fn shutdown(&self) {
-        let _ = self.shutdown_tx.send(true);
+        if let Err(_) = self.shutdown_tx.send(true) {
+            tracing::debug!("shutdown signaled with no active receivers");
+        }
     }
 
     /// Clone the shutdown sender so that the shutdown signal can be sent from
@@ -179,6 +197,11 @@ impl Server {
     ///
     /// Sending `true` through this handle causes `Self::run` to break
     /// out of its accept loop and return.
+    ///
+    /// Shutdown is idempotent: multiple sends through this handle or
+    /// `Self::shutdown` are safe; the watch channel keeps the last value. If
+    /// no receiver remains, the send failure is logged at `tracing::debug!`
+    /// level by `Self::shutdown`.
     ///
     /// `Self::run` will return after the accept loop stops and all in-flight
     /// connections have drained (or the drain timeout has expired).

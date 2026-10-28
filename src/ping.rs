@@ -1,3 +1,12 @@
+//! Ping keep-alive protocol and background task.
+//!
+//! # Keep-alive design (documented limitation; WONTFIX-by-design)
+//!
+//! The keep-alive / ping task intentionally holds idle connections open for
+//! as long as pings succeed; there is **no idle cap by design**. Applications
+//! that need an idle timeout should drop the client rather than rely on
+//! keep-alive to terminate the connection. This documents the September audit
+//! item "ping task keeps connection alive indefinitely" as WONTFIX-by-design.
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

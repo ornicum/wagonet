@@ -146,6 +146,8 @@ pub struct KeepAliveConfig {
     pub interval: Duration,  // TCP_KEEPINTVL: interval between probes (default: 10s)
 }
 ```
+### Keep-Alive
+
 
 ## Protocol
 
@@ -166,6 +168,8 @@ pub struct KeepAliveConfig {
 ### Empty Payload Optimization
 
 When `data_size == 0`, the header is only 1 byte (just the status byte).
+### Protocol guarantees
+
 
 ## API Reference
 
@@ -238,6 +242,8 @@ See [examples/](examples/) directory:
 
 - ⚠️ **Plain TCP is unencrypted.** `ClientTL` and `ServerTL` transmit all commands, payloads, and statuses in the clear. Use `ClientTLS`/`ServerTLS` (TLS mode) for confidentiality and integrity on untrusted networks.
 - TLS certificate validation **enabled by default** (`accept_invalid_certs: false`)
+- **Minimum TLS environment**: wagonet relies on the platform TLS stack (`native-tls` / system OpenSSL via `tokio-native-tls`); it does not vendor a TLS implementation. Minimum supported OpenSSL is **3.0.x / 1.1.1w+**. Cipher-suite and TLS-version policy follows platform defaults; wagonet does not enforce a minimum TLS version or cipher selection. A rustls migration is out of scope for 0.x (audit SM-07).
+- **No protocol-level authentication, replay protection, or sequencing**: the wire protocol provides none of these guarantees of its own; they are TLS-only (`ClientTLS`/`ServerTLS`). Applications on untrusted paths without TLS must add nonces and sequence numbers themselves (audit SM-09).
 
 - No secrets in logs (only fixed strings and error codes)
 - Bounded retries (no infinite loops)

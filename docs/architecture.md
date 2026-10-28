@@ -143,3 +143,8 @@ let resp2 = client.handle_message(2, b"world").await?;
 3. **Connection lifecycle**: Stream is cleared on failure; caller is responsible for retries
 4. **Resource Cleanup**: `disconnect()` clears stream on both success and error paths
 5. **No Secrets in Logs**: All logging uses fixed strings and error codes only
+6. **Minimum TLS environment**: wagonet relies on the platform TLS stack (`native-tls` / system OpenSSL via `tokio-native-tls`); it does not vendor a TLS implementation. Minimum supported OpenSSL is **3.0.x / 1.1.1w+**. Cipher-suite and TLS-version policy follow platform defaults; a rustls migration is out of scope for 0.x (audit SM-07).
+7. **No protocol-level authentication, replay protection, or sequencing**: the wire protocol provides none of these guarantees of its own; they are TLS-only. Applications on untrusted paths without TLS must add nonces and sequence numbers themselves (audit SM-09).
+8. **Keep-alive holds idle connections indefinitely**: the ping keep-alive intentionally keeps connections open as long as pings succeed; there is no idle cap by design (WONTFIX-by-design). Applications needing an idle timeout should drop the client (September audit item).
+9. **No-answer mode limitation**: `set_command_has_answer(false)` is compatible only with servers that send no response frames at all; it is **not** compatible with wagonet's own `Server`/`ServerTL`/`ServerTLS` `send_data` path, which sends a response-header ACK (audit SI-09, documented limitation until a wire flag is designed).
+10. **Shutdown idempotency**: `Server::shutdown()` and `shutdown_handle()` are idempotent; a send failure when no receiver remains is logged at `tracing::debug!` rather than silently dropped (audit SM-12).
